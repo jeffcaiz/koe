@@ -54,6 +54,23 @@ mod platform {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
+    // Monitor APIs
+    const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
+    const MONITOR_DEFAULTTONEAREST: u32 = 2;
+
+    extern "system" {
+        fn MonitorFromWindow(hwnd: HWND, dwflags: u32) -> *mut std::ffi::c_void;
+        fn GetMonitorInfoW(hmonitor: *mut std::ffi::c_void, lpmi: *mut MONITORINFO) -> BOOL;
+    }
+
+    #[repr(C)]
+    struct MONITORINFO {
+        cbSize: u32,
+        rcMonitor: RECT,
+        rcWork: RECT,
+        dwFlags: u32,
+    }
+
     const PILL_WIDTH: i32 = 280;
     const PILL_HEIGHT_SMALL: i32 = 36;   // status only
     const PILL_HEIGHT_LARGE: i32 = 54;   // status + interim text
@@ -70,8 +87,6 @@ mod platform {
         visible: bool,
         hwnd: HWND,
         dismiss_at: Option<std::time::Instant>,
-        screen_w: i32,
-        screen_h: i32,
     }
 
     static mut STATE: Option<OverlayState> = None;
@@ -119,10 +134,9 @@ mod platform {
             };
             RegisterClassExW(&wc);
 
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
-            let x = (screen_w - PILL_WIDTH) / 2;
-            let y = screen_h - PILL_HEIGHT_SMALL - 60;
+            // Initial position (will be updated when shown)
+            let x = 0;
+            let y = 0;
 
             let window_name = to_wide("Koe");
             let hwnd = CreateWindowExW(
@@ -152,8 +166,6 @@ mod platform {
                 visible: false,
                 hwnd,
                 dismiss_at: None,
-                screen_w,
-                screen_h,
             });
 
             SetTimer(hwnd, TIMER_ID, TIMER_INTERVAL_MS, None);
@@ -247,15 +259,41 @@ mod platform {
         }
     }
 
-    /// Resize and reposition the pill based on whether interim text is showing.
+    /// Get the working area of the monitor where the foreground window is.
+    unsafe fn active_monitor_rect() -> RECT {
+        let fg = GetForegroundWindow();
+        let monitor = if fg.is_null() {
+            MonitorFromWindow(std::ptr::null_mut(), MONITOR_DEFAULTTOPRIMARY)
+        } else {
+            MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)
+        };
+
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) != 0 {
+            info.rcWork // working area (excludes taskbar)
+        } else {
+            // Fallback to primary screen
+            RECT {
+                left: 0, top: 0,
+                right: GetSystemMetrics(SM_CXSCREEN),
+                bottom: GetSystemMetrics(SM_CYSCREEN),
+            }
+        }
+    }
+
+    /// Resize and reposition the pill on the active monitor.
     unsafe fn resize_pill(state: &OverlayState) {
         let h = if state.interim_text.is_empty() {
             PILL_HEIGHT_SMALL
         } else {
             PILL_HEIGHT_LARGE
         };
-        let x = (state.screen_w - PILL_WIDTH) / 2;
-        let y = state.screen_h - h - 60;
+
+        let mon = active_monitor_rect();
+        let mon_w = mon.right - mon.left;
+        let x = mon.left + (mon_w - PILL_WIDTH) / 2;
+        let y = mon.bottom - h - 40;
 
         SetWindowPos(
             state.hwnd, HWND_TOPMOST,
@@ -263,7 +301,6 @@ mod platform {
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         );
 
-        // Update rounded region for new size
         let rgn = CreateRoundRectRgn(0, 0, PILL_WIDTH, h, CORNER_RADIUS, CORNER_RADIUS);
         SetWindowRgn(state.hwnd, rgn, 1);
     }
