@@ -376,6 +376,7 @@ function buildFormPatch() {
     asr: { provider: provider },
     llm: {
       enabled: document.getElementById('llm-enabled').checked,
+      active_profile: 'default',
       profiles: {
         'default': {
           provider: 'openai',
