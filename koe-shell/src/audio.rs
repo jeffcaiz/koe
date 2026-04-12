@@ -1,8 +1,12 @@
 //! Microphone capture via cpal, resampled to 16kHz mono PCM16 LE.
+//!
+//! The audio stream runs continuously from program start. A gate
+//! controls whether frames are pushed to koe-core. This avoids
+//! device startup latency (~1s on some USB mics) on each session.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, Stream};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 struct StreamHolder(#[allow(dead_code)] Stream);
@@ -10,23 +14,32 @@ unsafe impl Send for StreamHolder {}
 unsafe impl Sync for StreamHolder {}
 
 static STREAM: Mutex<Option<StreamHolder>> = Mutex::new(None);
+
+/// Gate: when true, audio frames are pushed to koe-core.
+static GATE_OPEN: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// Start capturing audio from the default input device.
-/// Frames are pushed directly to koe-core.
-pub fn start() -> Result<(), String> {
-    FRAME_COUNT.store(0, Ordering::SeqCst);
-
+/// Initialize the audio stream at program startup. The stream runs
+/// continuously but frames are only pushed when the gate is open.
+pub fn init() {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or("no input device available")?;
+    let device = match host.default_input_device() {
+        Some(d) => d,
+        None => {
+            log::error!("no input device available");
+            return;
+        }
+    };
 
     log::info!("audio device: {}", device.name().unwrap_or_default());
 
-    let supported = device
-        .default_input_config()
-        .map_err(|e| format!("no supported input config: {e}"))?;
+    let supported = match device.default_input_config() {
+        Ok(c) => c,
+        Err(e) => {
+            log::error!("no supported input config: {e}");
+            return;
+        }
+    };
 
     log::info!(
         "device config: {} Hz, {} channels, {:?}",
@@ -41,27 +54,44 @@ pub fn start() -> Result<(), String> {
     let config = supported.into();
 
     let stream = match sample_format {
-        SampleFormat::I16 => build_stream::<i16>(&device, &config, sample_rate, channels)?,
-        SampleFormat::F32 => build_stream::<f32>(&device, &config, sample_rate, channels)?,
-        _ => return Err(format!("unsupported sample format: {sample_format:?}")),
+        SampleFormat::I16 => build_stream::<i16>(&device, &config, sample_rate, channels),
+        SampleFormat::F32 => build_stream::<f32>(&device, &config, sample_rate, channels),
+        _ => {
+            log::error!("unsupported sample format: {sample_format:?}");
+            return;
+        }
     };
 
-    stream.play().map_err(|e| format!("failed to start stream: {e}"))?;
+    let stream = match stream {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("failed to build stream: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = stream.play() {
+        log::error!("failed to start stream: {e}");
+        return;
+    }
 
     let mut slot = STREAM.lock().unwrap();
     *slot = Some(StreamHolder(stream));
-
-    log::info!("audio capture started");
-    Ok(())
+    log::info!("audio stream running (gate closed)");
 }
 
-/// Stop capturing audio.
+/// Open the gate: start pushing audio frames to koe-core.
+pub fn start() {
+    FRAME_COUNT.store(0, Ordering::SeqCst);
+    GATE_OPEN.store(true, Ordering::SeqCst);
+    log::info!("audio gate opened");
+}
+
+/// Close the gate: stop pushing audio frames.
 pub fn stop() {
-    let mut slot = STREAM.lock().unwrap();
-    if slot.take().is_some() {
-        let frames = FRAME_COUNT.load(Ordering::SeqCst);
-        log::info!("audio capture stopped ({frames} frames pushed)");
-    }
+    GATE_OPEN.store(false, Ordering::SeqCst);
+    let frames = FRAME_COUNT.load(Ordering::SeqCst);
+    log::info!("audio gate closed ({frames} frames pushed)");
 }
 
 fn build_stream<T: cpal::Sample + cpal::SizedSample + Send + 'static>(
@@ -79,6 +109,9 @@ where
         .build_input_stream(
             config,
             move |data: &[T], _: &cpal::InputCallbackInfo| {
+                if !GATE_OPEN.load(Ordering::Relaxed) {
+                    return; // gate closed, discard
+                }
                 process_audio::<T>(data, sample_rate, target_rate, channels);
             },
             |err| {
@@ -99,7 +132,6 @@ where
         return;
     }
 
-    // Convert to mono f32
     let mono: Vec<f32> = data
         .chunks(channels)
         .map(|frame| {
@@ -111,14 +143,12 @@ where
         })
         .collect();
 
-    // Resample
     let resampled = if src_rate == dst_rate {
         mono
     } else {
         resample(&mono, src_rate, dst_rate)
     };
 
-    // Convert to PCM16 LE bytes
     let pcm_bytes: Vec<u8> = resampled
         .iter()
         .flat_map(|&sample| {
@@ -128,8 +158,7 @@ where
         })
         .collect();
 
-    // Push directly to koe-core
-    let n = FRAME_COUNT.fetch_add(1, Ordering::SeqCst);
+    let n = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
     if n == 0 {
         log::info!("first audio frame pushed to core");
     }

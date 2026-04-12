@@ -35,6 +35,9 @@ fn main() {
     // Start settings web server
     settings::start(&rt);
 
+    // Initialize audio stream (runs continuously, gate controls pushing)
+    audio::init();
+
     // Initialize overlay (floating status pill)
     overlay::init();
 
