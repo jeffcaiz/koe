@@ -149,8 +149,6 @@ fn on_event(event: Event) {
 }
 
 fn start_recording() {
-    let t0 = std::time::Instant::now();
-
     // 1. Create session (creates audio channel)
     let token = SESSION_TOKEN.fetch_add(1, Ordering::SeqCst);
     let ctx = SessionContext {
@@ -164,16 +162,9 @@ fn start_recording() {
         reset_to_idle();
         return;
     }
-    log::info!("session_begin took {:?}", t0.elapsed());
 
-    // 2. Start audio capture (frames go directly to core's channel)
-    if let Err(e) = crate::audio::start() {
-        log::error!("audio start failed: {e}");
-        let _ = api::session_cancel();
-        reset_to_idle();
-        return;
-    }
-    log::info!("audio::start took {:?} (total {:?})", t0.elapsed(), t0.elapsed());
+    // 2. Open the audio gate — instant, stream is already running
+    crate::audio::start();
 
     log::info!("recording started (token={token})");
 }
