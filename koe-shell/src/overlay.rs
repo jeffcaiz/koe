@@ -1,7 +1,7 @@
 //! Floating status overlay — a small pill at the bottom center of the screen.
 //!
 //! Shows recording status, interim ASR text, and processing state.
-//! Windows implementation using Win32 layered window.
+//! Windows implementation using Win32 layered window via windows-sys.
 
 use std::sync::mpsc;
 use std::thread;
@@ -43,6 +43,7 @@ pub fn update_interim_text(text: &str) {
 }
 
 /// Dismiss the overlay.
+#[allow(dead_code)]
 pub fn dismiss() {
     if let Some(tx) = TX.lock().unwrap().as_ref() {
         let _ = tx.send(OverlayMsg::Dismiss);
@@ -54,24 +55,20 @@ mod platform {
     use super::OverlayMsg;
     use std::sync::mpsc;
 
-    use windows::core::*;
-    use windows::Win32::Foundation::*;
-    use windows::Win32::Graphics::Gdi::*;
-    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows_sys::Win32::Foundation::*;
+    use windows_sys::Win32::Graphics::Gdi::*;
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
     const WINDOW_WIDTH: i32 = 400;
     const WINDOW_HEIGHT: i32 = 60;
     const TIMER_ID: usize = 1;
     const TIMER_INTERVAL_MS: u32 = 50;
 
-    // Custom message to wake the window proc
-    const WM_OVERLAY_UPDATE: u32 = WM_USER + 1;
-
     struct OverlayState {
         status_text: String,
         interim_text: String,
-        accent_color: COLORREF,
+        bg_color: u32, // COLORREF (0x00BBGGRR)
         visible: bool,
         hwnd: HWND,
         dismiss_at: Option<std::time::Instant>,
@@ -80,80 +77,85 @@ mod platform {
     static mut STATE: Option<OverlayState> = None;
     static mut RX: Option<mpsc::Receiver<OverlayMsg>> = None;
 
-    fn status_for_state(state: &str) -> (&str, COLORREF) {
+    fn status_for_state(state: &str) -> (&str, u32) {
         match state {
-            s if s.starts_with("recording") => ("Listening...", COLORREF(0x002828E0)), // red (BGR)
-            "connecting_asr" => ("Connecting...", COLORREF(0x0028C8F0)),                // yellow
-            "finalizing_asr" => ("Recognizing...", COLORREF(0x00F0C858)),               // blue
-            "correcting" => ("Thinking...", COLORREF(0x00F09A58)),                      // purple-blue
+            s if s.starts_with("recording") => ("Listening...", 0x002828E0),   // red
+            "connecting_asr" => ("Connecting...", 0x0028C8F0),                  // yellow
+            "finalizing_asr" => ("Recognizing...", 0x00F0C858),                 // blue
+            "correcting" => ("Thinking...", 0x00F09A58),                        // purple
             s if s.starts_with("preparing_paste") || s == "pasting" => {
-                ("Done!", COLORREF(0x0048D848))                                         // green
+                ("Done!", 0x0048D848)                                           // green
             }
-            "failed" | "error" => ("Error", COLORREF(0x002828E0)),                      // red
-            _ => ("", COLORREF(0x00404040)),                                            // gray
+            "failed" | "error" => ("Error", 0x002828E0),                        // red
+            _ => ("", 0x00404040),                                              // gray
         }
+    }
+
+    /// Encode a Rust string as a null-terminated UTF-16 buffer.
+    fn to_wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(Some(0)).collect()
     }
 
     pub fn run_overlay(rx: mpsc::Receiver<OverlayMsg>) {
         unsafe {
             RX = Some(rx);
 
-            let class_name = w!("KoeOverlay");
-            let hinstance = GetModuleHandleW(None).unwrap();
+            let class_name = to_wide("KoeOverlay");
+            let hinstance = GetModuleHandleW(std::ptr::null());
 
             let wc = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
                 style: CS_HREDRAW | CS_VREDRAW,
                 lpfnWndProc: Some(wnd_proc),
-                hInstance: hinstance.into(),
-                hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
-                lpszClassName: class_name,
-                hbrBackground: HBRUSH(std::ptr::null_mut()),
-                ..Default::default()
+                cbClsExtra: 0,
+                cbWndExtra: 0,
+                hInstance: hinstance,
+                hIcon: 0,
+                hCursor: LoadCursorW(0, IDC_ARROW),
+                hbrBackground: 0,
+                lpszMenuName: std::ptr::null(),
+                lpszClassName: class_name.as_ptr(),
+                hIconSm: 0,
             };
             RegisterClassExW(&wc);
 
-            // Position at bottom center of primary monitor
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
             let x = (screen_w - WINDOW_WIDTH) / 2;
-            let y = screen_h - WINDOW_HEIGHT - 80; // 80px above bottom
+            let y = screen_h - WINDOW_HEIGHT - 80;
 
+            let window_name = to_wide("Koe");
             let hwnd = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
-                class_name,
-                w!("Koe"),
+                class_name.as_ptr(),
+                window_name.as_ptr(),
                 WS_POPUP,
                 x,
                 y,
                 WINDOW_WIDTH,
                 WINDOW_HEIGHT,
-                None,
-                None,
-                Some(HINSTANCE(hinstance.0)),
-                None,
-            )
-            .unwrap();
+                0, // parent
+                0, // menu
+                hinstance,
+                std::ptr::null(),
+            );
 
-            // Set window opacity (220/255 ≈ 86%)
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
+            SetLayeredWindowAttributes(hwnd, 0, 220, LWA_ALPHA);
 
             STATE = Some(OverlayState {
                 status_text: String::new(),
                 interim_text: String::new(),
-                accent_color: COLORREF(0x00404040),
+                bg_color: 0x00404040,
                 visible: false,
                 hwnd,
                 dismiss_at: None,
             });
 
-            // Timer to poll for messages from the channel
             SetTimer(hwnd, TIMER_ID, TIMER_INTERVAL_MS, None);
 
-            // Message loop
-            let mut msg = MSG::default();
-            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                let _ = TranslateMessage(&msg);
+            let mut msg: MSG = std::mem::zeroed();
+            while GetMessageW(&mut msg, 0, 0, 0) > 0 {
+                TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
         }
@@ -166,17 +168,17 @@ mod platform {
         lparam: LPARAM,
     ) -> LRESULT {
         match msg {
-            WM_TIMER if wparam.0 == TIMER_ID => {
+            WM_TIMER if wparam == TIMER_ID => {
                 poll_messages();
-                LRESULT(0)
+                0
             }
             WM_PAINT => {
                 paint(hwnd);
-                LRESULT(0)
+                0
             }
             WM_DESTROY => {
                 PostQuitMessage(0);
-                LRESULT(0)
+                0
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
@@ -197,7 +199,6 @@ mod platform {
                     let (text, color) = status_for_state(&s);
 
                     if s == "idle" || s == "completed" {
-                        // Don't hide immediately — show "Done!" briefly
                         if !state.visible {
                             continue;
                         }
@@ -205,17 +206,16 @@ mod platform {
                             std::time::Instant::now() + std::time::Duration::from_millis(800),
                         );
                     } else if s.starts_with("preparing_paste") || s == "pasting" {
-                        // Show "Done!" then auto-dismiss
                         state.dismiss_at = Some(
                             std::time::Instant::now() + std::time::Duration::from_millis(1000),
                         );
                         state.status_text = text.to_string();
-                        state.accent_color = color;
+                        state.bg_color = color;
                         show_window(state);
                     } else {
                         state.dismiss_at = None;
                         state.status_text = text.to_string();
-                        state.accent_color = color;
+                        state.bg_color = color;
                         if !text.is_empty() {
                             show_window(state);
                         }
@@ -233,7 +233,6 @@ mod platform {
             }
         }
 
-        // Check auto-dismiss timer
         let state = STATE.as_mut().unwrap();
         if let Some(dismiss_at) = state.dismiss_at {
             if std::time::Instant::now() >= dismiss_at {
@@ -245,8 +244,7 @@ mod platform {
         }
 
         if needs_repaint {
-            let hwnd = state.hwnd;
-            let _ = InvalidateRect(hwnd, None, true);
+            InvalidateRect(state.hwnd, std::ptr::null(), 1);
         }
     }
 
@@ -267,7 +265,7 @@ mod platform {
     }
 
     unsafe fn paint(hwnd: HWND) {
-        let mut ps = PAINTSTRUCT::default();
+        let mut ps: PAINTSTRUCT = std::mem::zeroed();
         let hdc = BeginPaint(hwnd, &mut ps);
 
         let state = match STATE.as_ref() {
@@ -278,83 +276,95 @@ mod platform {
             }
         };
 
-        let mut rect = RECT::default();
-        GetClientRect(hwnd, &mut rect).unwrap_or_default();
+        let mut rect: RECT = std::mem::zeroed();
+        GetClientRect(hwnd, &mut rect);
 
         // Background
-        let bg_brush = CreateSolidBrush(state.accent_color);
+        let bg_brush = CreateSolidBrush(state.bg_color);
         FillRect(hdc, &rect, bg_brush);
-        let _ = DeleteObject(bg_brush);
+        DeleteObject(bg_brush);
 
-        // Text color: white
-        SetTextColor(hdc, COLORREF(0x00FFFFFF));
-        SetBkMode(hdc, TRANSPARENT);
+        // White text
+        SetTextColor(hdc, 0x00FFFFFF);
+        SetBkMode(hdc, TRANSPARENT as i32);
 
-        // Status text (top area, bold)
+        // Status text (bold, 20px)
+        let font_name = to_wide("Segoe UI");
         let font = CreateFontW(
             20, 0, 0, 0,
             700, // bold
             0, 0, 0,
-            DEFAULT_CHARSET.0 as u32,
-            OUT_DEFAULT_PRECIS.0 as u32,
-            CLIP_DEFAULT_PRECIS.0 as u32,
-            CLEARTYPE_QUALITY.0 as u32,
-            DEFAULT_PITCH.0 as u32 | FF_SWISS.0 as u32,
-            w!("Segoe UI"),
+            DEFAULT_CHARSET as u32,
+            OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32,
+            CLEARTYPE_QUALITY as u32,
+            (DEFAULT_PITCH | FF_SWISS) as u32,
+            font_name.as_ptr(),
         );
         let old_font = SelectObject(hdc, font);
 
-        let mut status: Vec<u16> = state.status_text.encode_utf16().chain(Some(0)).collect();
+        let mut status_buf = to_wide(&state.status_text);
         let mut status_rect = RECT {
             left: 16,
             top: 6,
             right: rect.right - 16,
             bottom: 30,
         };
-        DrawTextW(hdc, &mut status, &mut status_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+        DrawTextW(
+            hdc,
+            status_buf.as_mut_ptr(),
+            status_buf.len() as i32 - 1, // exclude null terminator
+            &mut status_rect,
+            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
+        );
 
-        // Interim text (bottom area, smaller, regular weight)
+        // Interim text (regular, 15px)
         if !state.interim_text.is_empty() {
             let small_font = CreateFontW(
                 15, 0, 0, 0,
-                400, // regular
+                400,
                 0, 0, 0,
-                DEFAULT_CHARSET.0 as u32,
-                OUT_DEFAULT_PRECIS.0 as u32,
-                CLIP_DEFAULT_PRECIS.0 as u32,
-                CLEARTYPE_QUALITY.0 as u32,
-                DEFAULT_PITCH.0 as u32 | FF_SWISS.0 as u32,
-                w!("Segoe UI"),
+                DEFAULT_CHARSET as u32,
+                OUT_DEFAULT_PRECIS as u32,
+                CLIP_DEFAULT_PRECIS as u32,
+                CLEARTYPE_QUALITY as u32,
+                (DEFAULT_PITCH | FF_SWISS) as u32,
+                font_name.as_ptr(),
             );
             SelectObject(hdc, small_font);
 
-            // Show last ~50 chars of interim text
             let display_text = if state.interim_text.chars().count() > 50 {
                 let start = state.interim_text.char_indices()
                     .rev()
                     .nth(49)
                     .map(|(i, _)| i)
                     .unwrap_or(0);
-                format!("…{}", &state.interim_text[start..])
+                format!("...{}", &state.interim_text[start..])
             } else {
                 state.interim_text.clone()
             };
 
-            let mut interim: Vec<u16> = display_text.encode_utf16().chain(Some(0)).collect();
+            let mut interim_buf = to_wide(&display_text);
             let mut interim_rect = RECT {
                 left: 16,
                 top: 32,
                 right: rect.right - 16,
                 bottom: rect.bottom - 4,
             };
-            SetTextColor(hdc, COLORREF(0x00E0E0E0)); // slightly dimmer
-            DrawTextW(hdc, &mut interim, &mut interim_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+            SetTextColor(hdc, 0x00E0E0E0);
+            DrawTextW(
+                hdc,
+                interim_buf.as_mut_ptr(),
+                interim_buf.len() as i32 - 1,
+                &mut interim_rect,
+                DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
+            );
 
-            let _ = DeleteObject(small_font);
+            DeleteObject(small_font);
         }
 
         SelectObject(hdc, old_font);
-        let _ = DeleteObject(font);
+        DeleteObject(font);
 
         EndPaint(hwnd, &ps);
     }
@@ -366,7 +376,6 @@ mod platform {
     use std::sync::mpsc;
 
     pub fn run_overlay(rx: mpsc::Receiver<OverlayMsg>) {
-        // Linux: TODO — for now just drain messages
         log::info!("overlay: no visual overlay on this platform (logging only)");
         while let Ok(msg) = rx.recv() {
             match msg {
