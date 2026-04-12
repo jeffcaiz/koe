@@ -1,7 +1,8 @@
 //! Global hotkey via raw key event listening.
 //!
 //! Uses rdev to listen for key press/release events. Supports single
-//! modifier keys (e.g. Right Alt) as hotkeys.
+//! modifier keys as hotkeys. Only triggers on key release to avoid
+//! repeat-firing from long press.
 
 use koe_core::api::{self, SessionContext, SessionMode};
 use rdev::{listen, Event, EventType, Key};
@@ -11,14 +12,10 @@ use std::thread;
 static RECORDING: AtomicBool = AtomicBool::new(false);
 static SESSION_TOKEN: AtomicU64 = AtomicU64::new(1);
 
-// The trigger key — MVP: hardcoded to Right Alt
-const TRIGGER_KEY: Key = Key::Alt;
-
 /// Start the key listener in a background thread.
-/// Must be called before the main event loop.
 pub fn init() {
     thread::spawn(|| {
-        log::info!("hotkey registered: Right Alt (toggle mode)");
+        log::info!("hotkey registered: Right Alt / AltGr (toggle mode)");
         if let Err(e) = listen(on_event) {
             log::error!("key listener failed: {e:?}");
         }
@@ -28,18 +25,17 @@ pub fn init() {
 /// No-op for compatibility with tray.rs poll loop.
 pub fn poll_events() {}
 
+fn is_trigger_key(key: &Key) -> bool {
+    // Right Alt shows up as AltGr on Windows
+    matches!(key, Key::AltGr)
+}
+
 fn on_event(event: Event) {
-    match event.event_type {
-        EventType::KeyPress(key) => {
-            log::debug!("key press: {key:?}");
-            if key == TRIGGER_KEY {
-                toggle_session();
-            }
+    // Trigger on key RELEASE only — avoids repeat-firing from long press
+    if let EventType::KeyRelease(key) = event.event_type {
+        if is_trigger_key(&key) {
+            toggle_session();
         }
-        EventType::KeyRelease(key) => {
-            log::debug!("key release: {key:?}");
-        }
-        _ => {}
     }
 }
 
