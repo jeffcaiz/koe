@@ -1,5 +1,6 @@
 mod audio;
 mod hotkey;
+mod overlay;
 mod paste;
 mod tray;
 
@@ -30,6 +31,9 @@ fn main() {
     // Spawn event consumer on the tokio runtime
     rt.spawn(event_loop(event_rx));
 
+    // Initialize overlay (floating status pill)
+    overlay::init();
+
     // Initialize hotkey (registers global hotkey)
     hotkey::init();
 
@@ -56,9 +60,11 @@ async fn event_loop(mut rx: mpsc::UnboundedReceiver<KoeEvent>) {
             KoeEvent::StateChanged { token: _, state } => {
                 log::info!("state: {state}");
                 tray::update_status(&state);
+                overlay::update_state(&state);
             }
             KoeEvent::InterimText { token: _, text } => {
                 log::debug!("interim: {text}");
+                overlay::update_interim_text(&text);
             }
             KoeEvent::AsrFinalText { token: _, text } => {
                 log::info!("ASR final: {text}");
