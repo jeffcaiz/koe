@@ -11,11 +11,10 @@ static STATUS: Mutex<String> = Mutex::new(String::new());
 pub fn update_status(state: &str) {
     let mut s = STATUS.lock().unwrap();
     *s = state.to_string();
-    // TODO: update tray icon based on state (idle/recording/processing)
 }
 
 /// Run the main event loop. This blocks the main thread.
-/// Handles tray menu events and hotkey polling.
+/// Handles tray menu events and pumps Win32 messages.
 pub fn run_event_loop() {
     // Build tray menu
     let settings_item = MenuItem::new("Settings...", true, None);
@@ -27,7 +26,7 @@ pub fn run_event_loop() {
     let _ = menu.append(&reload_item);
     let _ = menu.append(&quit_item);
 
-    // Create tray icon with a simple built-in icon
+    // Create tray icon
     let icon = load_default_icon();
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
@@ -42,8 +41,12 @@ pub fn run_event_loop() {
 
     log::info!("tray icon created");
 
-    // Main event loop: poll hotkey events and tray menu events
+    // Main event loop
     loop {
+        // Pump Win32 messages — required for tray icon to respond to clicks
+        #[cfg(windows)]
+        pump_win32_messages();
+
         // Poll hotkey events
         crate::hotkey::poll_events();
 
@@ -63,14 +66,25 @@ pub fn run_event_loop() {
             }
         }
 
-        // Sleep briefly to avoid busy-looping
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
 
-/// Create a minimal default icon (1x1 RGBA pixel).
+/// Pump pending Win32 messages so the tray icon's hidden window can process clicks.
+#[cfg(windows)]
+fn pump_win32_messages() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    unsafe {
+        let mut msg = std::mem::zeroed();
+        while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+/// Create a minimal default icon (16x16 blue square).
 fn load_default_icon() -> tray_icon::Icon {
-    // A tiny 16x16 blue square as placeholder icon
     let size = 16u32;
     let rgba: Vec<u8> = vec![0x33, 0x99, 0xFF, 0xFF].repeat((size * size) as usize);
     tray_icon::Icon::from_rgba(rgba, size, size).expect("failed to create icon")
