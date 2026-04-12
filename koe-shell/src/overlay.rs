@@ -110,12 +110,12 @@ mod platform {
                 cbClsExtra: 0,
                 cbWndExtra: 0,
                 hInstance: hinstance,
-                hIcon: 0,
-                hCursor: LoadCursorW(0, IDC_ARROW),
-                hbrBackground: 0,
+                hIcon: std::ptr::null_mut(),
+                hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
+                hbrBackground: std::ptr::null_mut(),
                 lpszMenuName: std::ptr::null(),
                 lpszClassName: class_name.as_ptr(),
-                hIconSm: 0,
+                hIconSm: std::ptr::null_mut(),
             };
             RegisterClassExW(&wc);
 
@@ -134,8 +134,8 @@ mod platform {
                 y,
                 WINDOW_WIDTH,
                 WINDOW_HEIGHT,
-                0, // parent
-                0, // menu
+                std::ptr::null_mut(), // parent
+                std::ptr::null_mut(), // menu
                 hinstance,
                 std::ptr::null(),
             );
@@ -154,7 +154,7 @@ mod platform {
             SetTimer(hwnd, TIMER_ID, TIMER_INTERVAL_MS, None);
 
             let mut msg: MSG = std::mem::zeroed();
-            while GetMessageW(&mut msg, 0, 0, 0) > 0 {
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
