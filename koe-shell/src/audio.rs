@@ -166,7 +166,11 @@ where
         let _ = koe_core::api::push_audio(&pcm_bytes);
     } else {
         let mut buf = PRE_BUFFER.lock().unwrap();
+        let count = buf.len();
         buf.push(pcm_bytes);
+        if count % 50 == 0 {
+            log::debug!("pre-buffer: {count} frames buffered, waiting for core");
+        }
     }
 }
 
