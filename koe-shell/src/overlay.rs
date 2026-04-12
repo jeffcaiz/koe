@@ -169,7 +169,7 @@ mod platform {
                 window_name.as_ptr(),
                 WS_POPUP,
                 x, y,
-                PILL_WIDTH, PILL_HEIGHT_SMALL,
+                BASE_PILL_WIDTH as i32, BASE_PILL_HEIGHT_SMALL as i32,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 hinstance,
@@ -180,7 +180,7 @@ mod platform {
             SetLayeredWindowAttributes(hwnd, 0, 230, LWA_ALPHA);
 
             // Rounded corners
-            let rgn = CreateRoundRectRgn(0, 0, PILL_WIDTH, PILL_HEIGHT_SMALL, CORNER_RADIUS, CORNER_RADIUS);
+            let rgn = CreateRoundRectRgn(0, 0, BASE_PILL_WIDTH as i32, BASE_PILL_HEIGHT_SMALL as i32, BASE_CORNER_RADIUS as i32, BASE_CORNER_RADIUS as i32);
             SetWindowRgn(hwnd, rgn, 1);
 
             STATE = Some(OverlayState {
