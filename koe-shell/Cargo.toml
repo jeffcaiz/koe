@@ -21,6 +21,6 @@ env_logger.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 cpal.workspace = true
 arboard.workspace = true
-global-hotkey.workspace = true
+rdev = "0.5"
 tray-icon.workspace = true
 enigo.workspace = true

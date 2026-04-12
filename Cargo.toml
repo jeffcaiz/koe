@@ -48,6 +48,6 @@ indicatif = "0.17"
 # koe-shell
 cpal = "0.15"
 arboard = "3"
-global-hotkey = "0.6"
+rdev = "0.5"
 tray-icon = "0.19"
 enigo = "0.2"
