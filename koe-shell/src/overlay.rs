@@ -61,7 +61,12 @@ mod platform {
     extern "system" {
         fn MonitorFromWindow(hwnd: HWND, dwflags: u32) -> *mut std::ffi::c_void;
         fn GetMonitorInfoW(hmonitor: *mut std::ffi::c_void, lpmi: *mut MONITORINFO) -> BOOL;
+        fn SetProcessDpiAwarenessContext(value: isize) -> BOOL;
+        fn GetDpiForWindow(hwnd: HWND) -> u32;
     }
+
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+    const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
 
     #[repr(C)]
     struct MONITORINFO {
@@ -71,14 +76,19 @@ mod platform {
         dwFlags: u32,
     }
 
-    const PILL_WIDTH: i32 = 280;
-    const PILL_HEIGHT_SMALL: i32 = 36;   // status only
-    const PILL_HEIGHT_LARGE: i32 = 54;   // status + interim text
-    const CORNER_RADIUS: i32 = 18;
+    // Base dimensions at 96 DPI (100% scaling)
+    const BASE_DPI: f32 = 96.0;
+    const BASE_PILL_WIDTH: f32 = 280.0;
+    const BASE_PILL_HEIGHT_SMALL: f32 = 36.0;
+    const BASE_PILL_HEIGHT_LARGE: f32 = 54.0;
+    const BASE_CORNER_RADIUS: f32 = 18.0;
+    const BASE_DOT_RADIUS: f32 = 5.0;
+    const BASE_STATUS_FONT: f32 = 16.0;
+    const BASE_INTERIM_FONT: f32 = 13.0;
+
     const TIMER_ID: usize = 1;
     const TIMER_INTERVAL_MS: u32 = 50;
     const BG_COLOR: u32 = 0x00302828;    // dark charcoal (BGR)
-    const DOT_RADIUS: i32 = 5;
 
     struct OverlayState {
         status_text: String,
@@ -111,8 +121,22 @@ mod platform {
         s.encode_utf16().chain(Some(0)).collect()
     }
 
+    /// Get DPI scale factor for the overlay window. Returns 1.0 at 96 DPI, 1.5 at 144, 2.0 at 192, etc.
+    unsafe fn dpi_scale(hwnd: HWND) -> f32 {
+        let dpi = GetDpiForWindow(hwnd);
+        if dpi == 0 { 1.0 } else { dpi as f32 / BASE_DPI }
+    }
+
+    /// Scale a base dimension by DPI.
+    fn scaled(base: f32, scale: f32) -> i32 {
+        (base * scale).round() as i32
+    }
+
     pub fn run_overlay(rx: mpsc::Receiver<OverlayMsg>) {
         unsafe {
+            // Declare per-monitor DPI awareness so we get real pixel sizes
+            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
             RX = Some(rx);
 
             let class_name = to_wide("KoeOverlay");
@@ -282,26 +306,29 @@ mod platform {
         }
     }
 
-    /// Resize and reposition the pill on the active monitor.
+    /// Resize and reposition the pill on the active monitor, DPI-aware.
     unsafe fn resize_pill(state: &OverlayState) {
+        let s = dpi_scale(state.hwnd);
+        let w = scaled(BASE_PILL_WIDTH, s);
         let h = if state.interim_text.is_empty() {
-            PILL_HEIGHT_SMALL
+            scaled(BASE_PILL_HEIGHT_SMALL, s)
         } else {
-            PILL_HEIGHT_LARGE
+            scaled(BASE_PILL_HEIGHT_LARGE, s)
         };
+        let corner = scaled(BASE_CORNER_RADIUS, s);
 
         let mon = active_monitor_rect();
         let mon_w = mon.right - mon.left;
-        let x = mon.left + (mon_w - PILL_WIDTH) / 2;
-        let y = mon.bottom - h - 40;
+        let x = mon.left + (mon_w - w) / 2;
+        let y = mon.bottom - h - scaled(40.0, s);
 
         SetWindowPos(
             state.hwnd, HWND_TOPMOST,
-            x, y, PILL_WIDTH, h,
+            x, y, w, h,
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         );
 
-        let rgn = CreateRoundRectRgn(0, 0, PILL_WIDTH, h, CORNER_RADIUS, CORNER_RADIUS);
+        let rgn = CreateRoundRectRgn(0, 0, w, h, corner, corner);
         SetWindowRgn(state.hwnd, rgn, 1);
     }
 
@@ -330,6 +357,8 @@ mod platform {
             None => { EndPaint(hwnd, &ps); return; }
         };
 
+        let s = dpi_scale(hwnd);
+
         let mut rect: RECT = std::mem::zeroed();
         GetClientRect(hwnd, &mut rect);
 
@@ -338,22 +367,19 @@ mod platform {
         FillRect(hdc, &rect, bg_brush);
         DeleteObject(bg_brush);
 
-        // Status dot (colored circle on the left)
+        // Status dot
+        let dot_r = scaled(BASE_DOT_RADIUS, s);
         let dot_brush = CreateSolidBrush(state.dot_color);
         let old_brush = SelectObject(hdc, dot_brush);
         let null_pen = GetStockObject(NULL_PEN);
         let old_pen = SelectObject(hdc, null_pen);
-        let dot_cx = 18;
+        let dot_cx = scaled(18.0, s);
         let dot_cy = if state.interim_text.is_empty() {
             rect.bottom / 2
         } else {
-            14
+            scaled(14.0, s)
         };
-        Ellipse(
-            hdc,
-            dot_cx - DOT_RADIUS, dot_cy - DOT_RADIUS,
-            dot_cx + DOT_RADIUS, dot_cy + DOT_RADIUS,
-        );
+        Ellipse(hdc, dot_cx - dot_r, dot_cy - dot_r, dot_cx + dot_r, dot_cy + dot_r);
         SelectObject(hdc, old_pen);
         SelectObject(hdc, old_brush);
         DeleteObject(dot_brush);
@@ -363,10 +389,12 @@ mod platform {
         SetBkMode(hdc, TRANSPARENT as i32);
 
         let font_name = to_wide("Segoe UI");
+        let text_left = scaled(30.0, s);
+        let pad_right = scaled(12.0, s);
 
-        // Status text (14px, semibold)
+        // Status text
         let font = CreateFontW(
-            16, 0, 0, 0,
+            scaled(BASE_STATUS_FONT, s), 0, 0, 0,
             600, 0, 0, 0,
             DEFAULT_CHARSET as u32,
             OUT_DEFAULT_PRECIS as u32,
@@ -377,21 +405,19 @@ mod platform {
         );
         let old_font = SelectObject(hdc, font);
 
-        let text_left = 30; // after the dot
         let mut status_buf = to_wide(&state.status_text);
         let mut status_rect = RECT {
             left: text_left,
-            top: if state.interim_text.is_empty() { 0 } else { 4 },
-            right: rect.right - 12,
-            bottom: if state.interim_text.is_empty() { rect.bottom } else { 24 },
+            top: if state.interim_text.is_empty() { 0 } else { scaled(4.0, s) },
+            right: rect.right - pad_right,
+            bottom: if state.interim_text.is_empty() { rect.bottom } else { scaled(24.0, s) },
         };
-        let flags = DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS;
-        DrawTextW(hdc, status_buf.as_mut_ptr(), status_buf.len() as i32 - 1, &mut status_rect, flags);
+        DrawTextW(hdc, status_buf.as_mut_ptr(), status_buf.len() as i32 - 1, &mut status_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 
-        // Interim text (13px, regular, slightly dimmer)
+        // Interim text
         if !state.interim_text.is_empty() {
             let small_font = CreateFontW(
-                13, 0, 0, 0,
+                scaled(BASE_INTERIM_FONT, s), 0, 0, 0,
                 400, 0, 0, 0,
                 DEFAULT_CHARSET as u32,
                 OUT_DEFAULT_PRECIS as u32,
@@ -413,9 +439,9 @@ mod platform {
             let mut interim_buf = to_wide(&display_text);
             let mut interim_rect = RECT {
                 left: text_left,
-                top: 28,
-                right: rect.right - 12,
-                bottom: rect.bottom - 4,
+                top: scaled(28.0, s),
+                right: rect.right - pad_right,
+                bottom: rect.bottom - scaled(4.0, s),
             };
             SetTextColor(hdc, 0x00B0B0B0);
             DrawTextW(hdc, interim_buf.as_mut_ptr(), interim_buf.len() as i32 - 1, &mut interim_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
