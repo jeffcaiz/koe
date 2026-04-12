@@ -2,6 +2,7 @@ mod audio;
 mod hotkey;
 mod overlay;
 mod paste;
+mod settings;
 mod tray;
 
 use koe_core::api;
@@ -30,6 +31,9 @@ fn main() {
 
     // Spawn event consumer on the tokio runtime
     rt.spawn(event_loop(event_rx));
+
+    // Start settings web server
+    settings::start(&rt);
 
     // Initialize overlay (floating status pill)
     overlay::init();

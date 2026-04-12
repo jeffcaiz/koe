@@ -17,6 +17,9 @@ path = "src/main.rs"
 [dependencies]
 koe-core = { path = "../koe-core", default-features = false, features = ["sherpa-onnx"] }
 log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
 env_logger.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 cpal.workspace = true
@@ -24,6 +27,9 @@ arboard.workspace = true
 rdev = "0.5"
 tray-icon.workspace = true
 enigo.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+open.workspace = true
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59"
