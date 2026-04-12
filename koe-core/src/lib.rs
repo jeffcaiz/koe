@@ -1,7 +1,9 @@
+pub mod api;
 pub mod audio_buffer;
 pub mod config;
 pub mod dictionary;
 pub mod errors;
+pub mod event;
 pub mod ffi;
 pub mod llm;
 pub mod model_manager;

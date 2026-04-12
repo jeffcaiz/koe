@@ -1,5 +1,5 @@
 [workspace]
-members = ["koe-asr", "koe-core", "koe-cli"]
+members = ["koe-asr", "koe-core", "koe-cli", "koe-shell"]
 resolver = "2"
 
 [workspace.package]
@@ -44,3 +44,10 @@ urlencoding = "2.1"
 # koe-cli
 clap = "4.6"
 indicatif = "0.17"
+
+# koe-shell
+cpal = "0.15"
+arboard = "3"
+global-hotkey = "0.6"
+tray-icon = "0.19"
+enigo = "0.2"

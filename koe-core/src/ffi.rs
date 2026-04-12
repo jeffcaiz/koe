@@ -1,3 +1,4 @@
+use crate::event::{self, KoeEvent};
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::sync::Mutex;
 
@@ -67,6 +68,7 @@ pub fn register_callbacks(callbacks: SPCallbacks) {
 }
 
 pub fn invoke_session_ready(token: u64) {
+    event::emit(KoeEvent::SessionReady { token });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_session_ready {
@@ -76,6 +78,7 @@ pub fn invoke_session_ready(token: u64) {
 }
 
 pub fn invoke_session_error(token: u64, message: &str) {
+    event::emit(KoeEvent::SessionError { token, message: message.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_session_error {
@@ -86,6 +89,7 @@ pub fn invoke_session_error(token: u64, message: &str) {
 }
 
 pub fn invoke_session_warning(token: u64, message: &str) {
+    event::emit(KoeEvent::SessionWarning { token, message: message.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_session_warning {
@@ -96,6 +100,7 @@ pub fn invoke_session_warning(token: u64, message: &str) {
 }
 
 pub fn invoke_final_text_ready(token: u64, text: &str) {
+    event::emit(KoeEvent::FinalText { token, text: text.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_final_text_ready {
@@ -106,6 +111,7 @@ pub fn invoke_final_text_ready(token: u64, text: &str) {
 }
 
 pub fn invoke_log_event(level: i32, message: &str) {
+    event::emit(KoeEvent::Log { level, message: message.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_log_event {
@@ -116,6 +122,7 @@ pub fn invoke_log_event(level: i32, message: &str) {
 }
 
 pub fn invoke_state_changed(token: u64, state: &str) {
+    event::emit(KoeEvent::StateChanged { token, state: state.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_state_changed {
@@ -126,6 +133,7 @@ pub fn invoke_state_changed(token: u64, state: &str) {
 }
 
 pub fn invoke_interim_text(token: u64, text: &str) {
+    event::emit(KoeEvent::InterimText { token, text: text.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_interim_text {
@@ -136,6 +144,7 @@ pub fn invoke_interim_text(token: u64, text: &str) {
 }
 
 pub fn invoke_asr_final_text(token: u64, text: &str) {
+    event::emit(KoeEvent::AsrFinalText { token, text: text.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_asr_final_text {
@@ -146,6 +155,7 @@ pub fn invoke_asr_final_text(token: u64, text: &str) {
 }
 
 pub fn invoke_rewrite_text_ready(token: u64, text: &str) {
+    event::emit(KoeEvent::RewriteText { token, text: text.to_string() });
     let cb = CALLBACKS.lock().unwrap();
     if let Some(ref cbs) = *cb {
         if let Some(f) = cbs.on_rewrite_text_ready {
