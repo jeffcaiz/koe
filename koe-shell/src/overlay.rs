@@ -1,12 +1,11 @@
-//! Floating status overlay — a small pill at the bottom center of the screen.
+//! Floating status overlay — a compact pill at the bottom center of the screen.
 //!
-//! Shows recording status, interim ASR text, and processing state.
-//! Windows implementation using Win32 layered window via windows-sys.
+//! Design: dark rounded pill with a colored status dot on the left,
+//! status text, and interim ASR text below.
 
 use std::sync::mpsc;
 use std::thread;
 
-/// Messages sent to the overlay thread.
 pub enum OverlayMsg {
     UpdateState(String),
     UpdateInterimText(String),
@@ -15,34 +14,29 @@ pub enum OverlayMsg {
 
 static TX: std::sync::Mutex<Option<mpsc::Sender<OverlayMsg>>> = std::sync::Mutex::new(None);
 
-/// Initialize the overlay. Spawns a background thread with its own window.
 pub fn init() {
     let (tx, rx) = mpsc::channel();
     {
         let mut slot = TX.lock().unwrap();
         *slot = Some(tx);
     }
-
     thread::spawn(move || {
         platform::run_overlay(rx);
     });
 }
 
-/// Update the overlay state (recording, correcting, idle, etc.)
 pub fn update_state(state: &str) {
     if let Some(tx) = TX.lock().unwrap().as_ref() {
         let _ = tx.send(OverlayMsg::UpdateState(state.to_string()));
     }
 }
 
-/// Update the interim text shown during recording.
 pub fn update_interim_text(text: &str) {
     if let Some(tx) = TX.lock().unwrap().as_ref() {
         let _ = tx.send(OverlayMsg::UpdateInterimText(text.to_string()));
     }
 }
 
-/// Dismiss the overlay.
 #[allow(dead_code)]
 pub fn dismiss() {
     if let Some(tx) = TX.lock().unwrap().as_ref() {
@@ -60,38 +54,44 @@ mod platform {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-    const WINDOW_WIDTH: i32 = 400;
-    const WINDOW_HEIGHT: i32 = 60;
+    const PILL_WIDTH: i32 = 280;
+    const PILL_HEIGHT_SMALL: i32 = 36;   // status only
+    const PILL_HEIGHT_LARGE: i32 = 54;   // status + interim text
+    const CORNER_RADIUS: i32 = 18;
     const TIMER_ID: usize = 1;
     const TIMER_INTERVAL_MS: u32 = 50;
+    const BG_COLOR: u32 = 0x00302828;    // dark charcoal (BGR)
+    const DOT_RADIUS: i32 = 5;
 
     struct OverlayState {
         status_text: String,
         interim_text: String,
-        bg_color: u32, // COLORREF (0x00BBGGRR)
+        dot_color: u32,
         visible: bool,
         hwnd: HWND,
         dismiss_at: Option<std::time::Instant>,
+        screen_w: i32,
+        screen_h: i32,
     }
 
     static mut STATE: Option<OverlayState> = None;
     static mut RX: Option<mpsc::Receiver<OverlayMsg>> = None;
 
+    /// Returns (status_text, dot_color_bgr).
     fn status_for_state(state: &str) -> (&str, u32) {
         match state {
-            s if s.starts_with("recording") => ("Listening...", 0x002828E0),   // red
-            "connecting_asr" => ("Connecting...", 0x0028C8F0),                  // yellow
-            "finalizing_asr" => ("Recognizing...", 0x00F0C858),                 // blue
-            "correcting" => ("Thinking...", 0x00F09A58),                        // purple
+            s if s.starts_with("recording") => ("Listening...", 0x004040FF),     // red dot
+            "connecting_asr" => ("Connecting...", 0x0040CCFF),                    // orange dot
+            "finalizing_asr" => ("Recognizing...", 0x00FFCC40),                   // blue dot
+            "correcting" => ("Thinking...", 0x00FF9060),                          // purple dot
             s if s.starts_with("preparing_paste") || s == "pasting" => {
-                ("Done!", 0x0048D848)                                           // green
+                ("Done!", 0x0060DD60)                                             // green dot
             }
-            "failed" | "error" => ("Error", 0x002828E0),                        // red
-            _ => ("", 0x00404040),                                              // gray
+            "failed" | "error" => ("Error", 0x004040FF),                          // red dot
+            _ => ("", 0x00808080),
         }
     }
 
-    /// Encode a Rust string as a null-terminated UTF-16 buffer.
     fn to_wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(Some(0)).collect()
     }
@@ -121,8 +121,8 @@ mod platform {
 
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
-            let x = (screen_w - WINDOW_WIDTH) / 2;
-            let y = screen_h - WINDOW_HEIGHT - 80;
+            let x = (screen_w - PILL_WIDTH) / 2;
+            let y = screen_h - PILL_HEIGHT_SMALL - 60;
 
             let window_name = to_wide("Koe");
             let hwnd = CreateWindowExW(
@@ -130,25 +130,30 @@ mod platform {
                 class_name.as_ptr(),
                 window_name.as_ptr(),
                 WS_POPUP,
-                x,
-                y,
-                WINDOW_WIDTH,
-                WINDOW_HEIGHT,
-                std::ptr::null_mut(), // parent
-                std::ptr::null_mut(), // menu
+                x, y,
+                PILL_WIDTH, PILL_HEIGHT_SMALL,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
                 hinstance,
                 std::ptr::null(),
             );
 
-            SetLayeredWindowAttributes(hwnd, 0, 220, LWA_ALPHA);
+            // Semi-transparent
+            SetLayeredWindowAttributes(hwnd, 0, 230, LWA_ALPHA);
+
+            // Rounded corners
+            let rgn = CreateRoundRectRgn(0, 0, PILL_WIDTH, PILL_HEIGHT_SMALL, CORNER_RADIUS, CORNER_RADIUS);
+            SetWindowRgn(hwnd, rgn, 1);
 
             STATE = Some(OverlayState {
                 status_text: String::new(),
                 interim_text: String::new(),
-                bg_color: 0x00404040,
+                dot_color: 0x00808080,
                 visible: false,
                 hwnd,
                 dismiss_at: None,
+                screen_w,
+                screen_h,
             });
 
             SetTimer(hwnd, TIMER_ID, TIMER_INTERVAL_MS, None);
@@ -162,24 +167,12 @@ mod platform {
     }
 
     unsafe extern "system" fn wnd_proc(
-        hwnd: HWND,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
+        hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM,
     ) -> LRESULT {
         match msg {
-            WM_TIMER if wparam == TIMER_ID => {
-                poll_messages();
-                0
-            }
-            WM_PAINT => {
-                paint(hwnd);
-                0
-            }
-            WM_DESTROY => {
-                PostQuitMessage(0);
-                0
-            }
+            WM_TIMER if wparam == TIMER_ID => { poll_messages(); 0 }
+            WM_PAINT => { paint(hwnd); 0 }
+            WM_DESTROY => { PostQuitMessage(0); 0 }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }
@@ -199,31 +192,37 @@ mod platform {
                     let (text, color) = status_for_state(&s);
 
                     if s == "idle" || s == "completed" {
-                        if !state.visible {
-                            continue;
-                        }
+                        if !state.visible { continue; }
                         state.dismiss_at = Some(
-                            std::time::Instant::now() + std::time::Duration::from_millis(800),
+                            std::time::Instant::now() + std::time::Duration::from_millis(600),
                         );
                     } else if s.starts_with("preparing_paste") || s == "pasting" {
                         state.dismiss_at = Some(
-                            std::time::Instant::now() + std::time::Duration::from_millis(1000),
+                            std::time::Instant::now() + std::time::Duration::from_millis(800),
                         );
                         state.status_text = text.to_string();
-                        state.bg_color = color;
+                        state.dot_color = color;
+                        state.interim_text.clear();
+                        resize_pill(state);
                         show_window(state);
                     } else {
                         state.dismiss_at = None;
                         state.status_text = text.to_string();
-                        state.bg_color = color;
+                        state.dot_color = color;
                         if !text.is_empty() {
+                            resize_pill(state);
                             show_window(state);
                         }
                     }
                     needs_repaint = true;
                 }
                 OverlayMsg::UpdateInterimText(text) => {
+                    let had_interim = !state.interim_text.is_empty();
                     state.interim_text = text;
+                    let has_interim = !state.interim_text.is_empty();
+                    if had_interim != has_interim {
+                        resize_pill(state);
+                    }
                     needs_repaint = true;
                 }
                 OverlayMsg::Dismiss => {
@@ -248,6 +247,27 @@ mod platform {
         }
     }
 
+    /// Resize and reposition the pill based on whether interim text is showing.
+    unsafe fn resize_pill(state: &OverlayState) {
+        let h = if state.interim_text.is_empty() {
+            PILL_HEIGHT_SMALL
+        } else {
+            PILL_HEIGHT_LARGE
+        };
+        let x = (state.screen_w - PILL_WIDTH) / 2;
+        let y = state.screen_h - h - 60;
+
+        SetWindowPos(
+            state.hwnd, HWND_TOPMOST,
+            x, y, PILL_WIDTH, h,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        );
+
+        // Update rounded region for new size
+        let rgn = CreateRoundRectRgn(0, 0, PILL_WIDTH, h, CORNER_RADIUS, CORNER_RADIUS);
+        SetWindowRgn(state.hwnd, rgn, 1);
+    }
+
     unsafe fn show_window(state: &mut OverlayState) {
         if !state.visible {
             ShowWindow(state.hwnd, SW_SHOWNOACTIVATE);
@@ -270,30 +290,47 @@ mod platform {
 
         let state = match STATE.as_ref() {
             Some(s) => s,
-            None => {
-                EndPaint(hwnd, &ps);
-                return;
-            }
+            None => { EndPaint(hwnd, &ps); return; }
         };
 
         let mut rect: RECT = std::mem::zeroed();
         GetClientRect(hwnd, &mut rect);
 
-        // Background
-        let bg_brush = CreateSolidBrush(state.bg_color);
+        // Dark background
+        let bg_brush = CreateSolidBrush(BG_COLOR);
         FillRect(hdc, &rect, bg_brush);
         DeleteObject(bg_brush);
 
-        // White text
+        // Status dot (colored circle on the left)
+        let dot_brush = CreateSolidBrush(state.dot_color);
+        let old_brush = SelectObject(hdc, dot_brush);
+        let null_pen = GetStockObject(NULL_PEN);
+        let old_pen = SelectObject(hdc, null_pen);
+        let dot_cx = 18;
+        let dot_cy = if state.interim_text.is_empty() {
+            rect.bottom / 2
+        } else {
+            14
+        };
+        Ellipse(
+            hdc,
+            dot_cx - DOT_RADIUS, dot_cy - DOT_RADIUS,
+            dot_cx + DOT_RADIUS, dot_cy + DOT_RADIUS,
+        );
+        SelectObject(hdc, old_pen);
+        SelectObject(hdc, old_brush);
+        DeleteObject(dot_brush);
+
+        // Text setup
         SetTextColor(hdc, 0x00FFFFFF);
         SetBkMode(hdc, TRANSPARENT as i32);
 
-        // Status text (bold, 20px)
         let font_name = to_wide("Segoe UI");
+
+        // Status text (14px, semibold)
         let font = CreateFontW(
-            20, 0, 0, 0,
-            700, // bold
-            0, 0, 0,
+            16, 0, 0, 0,
+            600, 0, 0, 0,
             DEFAULT_CHARSET as u32,
             OUT_DEFAULT_PRECIS as u32,
             CLIP_DEFAULT_PRECIS as u32,
@@ -303,27 +340,22 @@ mod platform {
         );
         let old_font = SelectObject(hdc, font);
 
+        let text_left = 30; // after the dot
         let mut status_buf = to_wide(&state.status_text);
         let mut status_rect = RECT {
-            left: 16,
-            top: 6,
-            right: rect.right - 16,
-            bottom: 30,
+            left: text_left,
+            top: if state.interim_text.is_empty() { 0 } else { 4 },
+            right: rect.right - 12,
+            bottom: if state.interim_text.is_empty() { rect.bottom } else { 24 },
         };
-        DrawTextW(
-            hdc,
-            status_buf.as_mut_ptr(),
-            status_buf.len() as i32 - 1, // exclude null terminator
-            &mut status_rect,
-            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
+        let flags = DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS;
+        DrawTextW(hdc, status_buf.as_mut_ptr(), status_buf.len() as i32 - 1, &mut status_rect, flags);
 
-        // Interim text (regular, 15px)
+        // Interim text (13px, regular, slightly dimmer)
         if !state.interim_text.is_empty() {
             let small_font = CreateFontW(
-                15, 0, 0, 0,
-                400,
-                0, 0, 0,
+                13, 0, 0, 0,
+                400, 0, 0, 0,
                 DEFAULT_CHARSET as u32,
                 OUT_DEFAULT_PRECIS as u32,
                 CLIP_DEFAULT_PRECIS as u32,
@@ -333,39 +365,29 @@ mod platform {
             );
             SelectObject(hdc, small_font);
 
-            let display_text = if state.interim_text.chars().count() > 50 {
+            let display_text = if state.interim_text.chars().count() > 40 {
                 let start = state.interim_text.char_indices()
-                    .rev()
-                    .nth(49)
-                    .map(|(i, _)| i)
-                    .unwrap_or(0);
-                format!("...{}", &state.interim_text[start..])
+                    .rev().nth(39).map(|(i, _)| i).unwrap_or(0);
+                format!("…{}", &state.interim_text[start..])
             } else {
                 state.interim_text.clone()
             };
 
             let mut interim_buf = to_wide(&display_text);
             let mut interim_rect = RECT {
-                left: 16,
-                top: 32,
-                right: rect.right - 16,
+                left: text_left,
+                top: 28,
+                right: rect.right - 12,
                 bottom: rect.bottom - 4,
             };
-            SetTextColor(hdc, 0x00E0E0E0);
-            DrawTextW(
-                hdc,
-                interim_buf.as_mut_ptr(),
-                interim_buf.len() as i32 - 1,
-                &mut interim_rect,
-                DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
+            SetTextColor(hdc, 0x00B0B0B0);
+            DrawTextW(hdc, interim_buf.as_mut_ptr(), interim_buf.len() as i32 - 1, &mut interim_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
 
             DeleteObject(small_font);
         }
 
         SelectObject(hdc, old_font);
         DeleteObject(font);
-
         EndPaint(hwnd, &ps);
     }
 }
