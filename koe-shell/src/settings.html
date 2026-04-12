@@ -35,19 +35,9 @@
     top: 0;
     z-index: 10;
   }
-  header h1 {
-    font-size: 18px;
-    font-weight: 600;
-  }
-  header .actions {
-    display: flex;
-    gap: 8px;
-  }
-  .container {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 24px;
-  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .actions { display: flex; gap: 8px; }
+  .container { max-width: 800px; margin: 0 auto; padding: 24px; }
   .section {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -72,123 +62,52 @@
   .section-header.collapsed .arrow { transform: rotate(-90deg); }
   .section-body { padding: 16px; }
   .section-body.hidden { display: none; }
-  .field {
-    margin-bottom: 14px;
-  }
+  .field { margin-bottom: 14px; }
   .field:last-child { margin-bottom: 0; }
   .field label {
-    display: block;
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    display: block; font-size: 12px; color: var(--text-dim);
+    margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
   }
   .field input, .field select {
-    width: 100%;
-    padding: 8px 10px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text);
-    font-size: 14px;
-    font-family: inherit;
+    width: 100%; padding: 8px 10px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-size: 14px; font-family: inherit;
   }
-  .field input:focus, .field select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-  .field input[type="checkbox"] {
-    width: auto;
-    margin-right: 6px;
-  }
-  .field .hint {
-    font-size: 11px;
-    color: var(--text-dim);
-    margin-top: 2px;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  btn, .btn {
-    padding: 8px 16px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface);
-    color: var(--text);
-    font-size: 13px;
-    cursor: pointer;
-    font-family: inherit;
+  .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
+  .field input[type="checkbox"] { width: auto; margin-right: 6px; }
+  .field .hint { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .btn {
+    padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text); font-size: 13px;
+    cursor: pointer; font-family: inherit;
   }
   .btn:hover { background: rgba(255,255,255,0.08); }
-  .btn-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .btn-primary:hover { background: var(--accent-hover); }
   .toast {
-    position: fixed;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-size: 13px;
-    color: #fff;
-    opacity: 0;
-    transition: opacity 0.3s;
-    pointer-events: none;
-    z-index: 100;
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 10px 20px; border-radius: 8px; font-size: 13px; color: #fff;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100;
   }
   .toast.show { opacity: 1; }
   .toast.success { background: var(--success); }
   .toast.error { background: var(--error); }
-
-  /* Raw YAML editor */
-  .yaml-editor {
-    margin-top: 16px;
-  }
+  .yaml-editor { margin-top: 16px; }
   .yaml-editor textarea {
-    width: 100%;
-    min-height: 300px;
-    padding: 12px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text);
+    width: 100%; min-height: 300px; padding: 12px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 4px; color: var(--text);
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-    font-size: 13px;
-    line-height: 1.5;
-    resize: vertical;
-    tab-size: 2;
+    font-size: 13px; line-height: 1.5; resize: vertical; tab-size: 2;
   }
-  .yaml-editor textarea:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .tabs {
-    display: flex;
-    gap: 0;
-    margin-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-  }
+  .yaml-editor textarea:focus { outline: none; border-color: var(--accent); }
+  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
   .tab {
-    padding: 10px 20px;
-    cursor: pointer;
-    font-size: 14px;
-    color: var(--text-dim);
-    border-bottom: 2px solid transparent;
-    transition: all 0.2s;
+    padding: 10px 20px; cursor: pointer; font-size: 14px; color: var(--text-dim);
+    border-bottom: 2px solid transparent; transition: all 0.2s;
   }
   .tab:hover { color: var(--text); }
-  .tab.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 </style>
@@ -208,9 +127,7 @@
     <div class="tab" data-tab="yaml">YAML</div>
   </div>
 
-  <!-- Form View -->
   <div id="tab-form" class="tab-content active">
-
     <!-- ASR -->
     <div class="section">
       <div class="section-header" onclick="toggleSection(this)">
@@ -310,10 +227,8 @@
         </div>
       </div>
     </div>
-
   </div>
 
-  <!-- YAML View -->
   <div id="tab-yaml" class="tab-content">
     <div class="yaml-editor">
       <textarea id="yaml-editor" spellcheck="false"></textarea>
@@ -324,115 +239,129 @@
 <div id="toast" class="toast"></div>
 
 <script>
-const API = '';
-
-// ─── Tab switching ──────────────────────
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+// Tab switching
+document.querySelectorAll('.tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
     tab.classList.add('active');
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
   });
 });
 
-// ─── Section toggle ─────────────────────
+// Section toggle
 function toggleSection(header) {
   header.classList.toggle('collapsed');
   header.nextElementSibling.classList.toggle('hidden');
 }
 
-// ─── ASR provider toggle ────────────────
+// ASR provider toggle
 document.getElementById('asr-provider').addEventListener('change', function() {
-  document.getElementById('asr-qwen-fields').style.display =
-    this.value === 'qwen' ? 'block' : 'none';
-  document.getElementById('asr-doubao-fields').style.display =
-    this.value === 'doubao' ? 'block' : 'none';
+  document.getElementById('asr-qwen-fields').style.display = this.value === 'qwen' ? 'block' : 'none';
+  document.getElementById('asr-doubao-fields').style.display = this.value === 'doubao' ? 'block' : 'none';
 });
 
-// ─── Toast ──────────────────────────────
+// Toast
 function showToast(msg, type) {
-  const el = document.getElementById('toast');
+  var el = document.getElementById('toast');
   el.textContent = msg;
   el.className = 'toast ' + type + ' show';
-  setTimeout(() => el.classList.remove('show'), 2000);
+  setTimeout(function() { el.classList.remove('show'); }, 2000);
 }
 
-// ─── Load config ────────────────────────
-let rawYaml = '';
+// Safely read nested config value
+function dig(obj) {
+  var v = obj;
+  for (var i = 1; i < arguments.length; i++) {
+    if (v == null || typeof v !== 'object') return '';
+    v = v[arguments[i]];
+  }
+  return v != null ? v : '';
+}
+
+// Load config
+var rawYaml = '';
 
 async function loadConfig() {
   try {
-    const res = await fetch(API + '/api/config');
-    rawYaml = await res.text();
+    var res = await fetch('/api/config');
+    var data = await res.json();
+    rawYaml = data.raw;
     document.getElementById('yaml-editor').value = rawYaml;
-    parseYamlToForm(rawYaml);
+    populateForm(data.config);
   } catch (e) {
     showToast('Failed to load config', 'error');
   }
 }
 
-function parseYamlToForm(yaml) {
-  // Simple key extraction — not a full YAML parser, just reads common fields
-  const get = (key) => {
-    const re = new RegExp('^\\s*' + key + ':\\s*["\']?([^"\'\\n]*)["\']?', 'm');
-    const m = yaml.match(re);
-    return m ? m[1].trim() : '';
-  };
-
+function populateForm(cfg) {
   // ASR
-  const provider = get('provider') || 'doubaoime';
-  const sel = document.getElementById('asr-provider');
-  for (const opt of sel.options) {
-    if (opt.value === provider) { sel.value = provider; break; }
-  }
+  var provider = dig(cfg, 'asr', 'provider') || 'doubaoime';
+  var sel = document.getElementById('asr-provider');
+  sel.value = provider;
   sel.dispatchEvent(new Event('change'));
 
-  document.getElementById('asr-qwen-api-key').value = get('api_key');
-  document.getElementById('asr-qwen-model').value = get('model') || 'paraformer-realtime-v2';
-  document.getElementById('asr-qwen-language').value = get('language') || 'zh';
+  document.getElementById('asr-qwen-api-key').value = dig(cfg, 'asr', 'qwen', 'api_key');
+  document.getElementById('asr-qwen-model').value = dig(cfg, 'asr', 'qwen', 'model') || 'paraformer-realtime-v2';
+  document.getElementById('asr-qwen-language').value = dig(cfg, 'asr', 'qwen', 'language') || 'zh';
+  document.getElementById('asr-doubao-app-key').value = dig(cfg, 'asr', 'doubao', 'app_key');
+  document.getElementById('asr-doubao-access-key').value = dig(cfg, 'asr', 'doubao', 'access_key');
 
-  // LLM �� look for fields under llm/profiles section
-  document.getElementById('llm-enabled').checked = get('enabled') !== 'false';
-  document.getElementById('llm-base-url').value = get('base_url');
-  document.getElementById('llm-api-key').value = get('api_key');
-  document.getElementById('llm-model').value = get('model');
+  // LLM - read from first profile
+  document.getElementById('llm-enabled').checked = dig(cfg, 'llm', 'enabled') !== false;
+  var profiles = dig(cfg, 'llm', 'profiles');
+  if (profiles && typeof profiles === 'object') {
+    var keys = Object.keys(profiles);
+    if (keys.length > 0) {
+      var p = profiles[keys[0]];
+      document.getElementById('llm-base-url').value = p.base_url || '';
+      document.getElementById('llm-api-key').value = p.api_key || '';
+      document.getElementById('llm-model').value = p.model || '';
+    }
+  }
 
   // Hotkey
-  const triggerKey = get('trigger_key') || 'fn';
-  const hotkeySelect = document.getElementById('hotkey-trigger');
-  let found = false;
-  for (const opt of hotkeySelect.options) {
-    if (opt.value === triggerKey) { hotkeySelect.value = triggerKey; found = true; break; }
+  var triggerKey = dig(cfg, 'hotkey', 'trigger_key') || 'fn';
+  var hotkeySelect = document.getElementById('hotkey-trigger');
+  var found = false;
+  for (var i = 0; i < hotkeySelect.options.length; i++) {
+    if (hotkeySelect.options[i].value === triggerKey) {
+      hotkeySelect.value = triggerKey;
+      found = true;
+      break;
+    }
   }
   if (!found) hotkeySelect.value = 'right_alt';
 }
 
-// ─── Save config ────────────────────────
+// Save config
 async function save() {
-  // If on YAML tab, use the raw editor content
-  const activeTab = document.querySelector('.tab.active').dataset.tab;
-  let content;
-
-  if (activeTab === 'yaml') {
-    content = document.getElementById('yaml-editor').value;
-  } else {
-    // Update the YAML with form values
-    content = buildYamlFromForm();
-  }
+  var activeTab = document.querySelector('.tab.active').dataset.tab;
 
   try {
-    const res = await fetch(API + '/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
-    if (res.ok) {
-      rawYaml = content;
-      document.getElementById('yaml-editor').value = content;
-      showToast('Saved! Config reloaded.', 'success');
+    var res;
+    if (activeTab === 'yaml') {
+      // YAML tab: send raw text
+      res = await fetch('/api/config/yaml', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: document.getElementById('yaml-editor').value }),
+      });
     } else {
-      const err = await res.text();
+      // Form tab: send JSON patch, backend merges into existing config
+      res = await fetch('/api/config/form', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildFormPatch()),
+      });
+    }
+
+    if (res.ok) {
+      showToast('Saved! Config reloaded.', 'success');
+      // Refresh to pick up merged result
+      await loadConfig();
+    } else {
+      var err = await res.text();
       showToast('Save failed: ' + err, 'error');
     }
   } catch (e) {
@@ -440,41 +369,45 @@ async function save() {
   }
 }
 
-function buildYamlFromForm() {
-  const provider = document.getElementById('asr-provider').value;
-  const llmEnabled = document.getElementById('llm-enabled').checked;
-  const baseUrl = document.getElementById('llm-base-url').value;
-  const apiKey = document.getElementById('llm-api-key').value;
-  const model = document.getElementById('llm-model').value;
-  const triggerKey = document.getElementById('hotkey-trigger').value;
+// Build a JSON object matching the config.yaml structure with current form values
+function buildFormPatch() {
+  var provider = document.getElementById('asr-provider').value;
+  var patch = {
+    asr: { provider: provider },
+    llm: {
+      enabled: document.getElementById('llm-enabled').checked,
+      profiles: {
+        'default': {
+          provider: 'openai',
+          base_url: document.getElementById('llm-base-url').value,
+          api_key: document.getElementById('llm-api-key').value,
+          model: document.getElementById('llm-model').value,
+        }
+      }
+    },
+    hotkey: {
+      trigger_key: document.getElementById('hotkey-trigger').value,
+    }
+  };
 
-  let yaml = `asr:\n  provider: "${provider}"\n`;
-
+  // Provider-specific ASR fields
   if (provider === 'qwen') {
-    const qKey = document.getElementById('asr-qwen-api-key').value;
-    const qModel = document.getElementById('asr-qwen-model').value || 'paraformer-realtime-v2';
-    const qLang = document.getElementById('asr-qwen-language').value || 'zh';
-    yaml += `  qwen:\n    api_key: "${qKey}"\n    model: "${qModel}"\n    language: "${qLang}"\n`;
+    patch.asr.qwen = {
+      api_key: document.getElementById('asr-qwen-api-key').value,
+      model: document.getElementById('asr-qwen-model').value || 'paraformer-realtime-v2',
+      language: document.getElementById('asr-qwen-language').value || 'zh',
+    };
   } else if (provider === 'doubao') {
-    const dKey = document.getElementById('asr-doubao-app-key').value;
-    const dAccess = document.getElementById('asr-doubao-access-key').value;
-    yaml += `  doubao:\n    app_key: "${dKey}"\n    access_key: "${dAccess}"\n`;
+    patch.asr.doubao = {
+      app_key: document.getElementById('asr-doubao-app-key').value,
+      access_key: document.getElementById('asr-doubao-access-key').value,
+    };
   }
 
-  yaml += `\nllm:\n  enabled: ${llmEnabled}\n`;
-  if (baseUrl || apiKey || model) {
-    yaml += `  profiles:\n    default:\n      provider: "openai"\n`;
-    if (baseUrl) yaml += `      base_url: "${baseUrl}"\n`;
-    if (apiKey) yaml += `      api_key: "${apiKey}"\n`;
-    if (model) yaml += `      model: "${model}"\n`;
-  }
-
-  yaml += `\nhotkey:\n  trigger_key: "${triggerKey}"\n`;
-
-  return yaml;
+  return patch;
 }
 
-// ─── Init ───────────────────────────────
+// Init
 loadConfig();
 </script>
 </body>

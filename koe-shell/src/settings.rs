@@ -1,7 +1,10 @@
 //! Localhost HTTP server for configuration UI.
 //!
-//! Serves a web UI at http://localhost:9876 and provides REST API
-//! endpoints for reading/writing config.yaml.
+//! GET  /           → HTML settings page
+//! GET  /api/config → { raw: "yaml text", config: {parsed json} }
+//! POST /api/config/form → merge JSON fields into existing config.yaml
+//! POST /api/config/yaml → overwrite config.yaml with raw text
+//! POST /api/reload → reload koe-core config
 
 use axum::extract::Json;
 use axum::http::StatusCode;
@@ -14,13 +17,13 @@ use tower_http::cors::CorsLayer;
 
 const PORT: u16 = 9876;
 
-/// Start the settings HTTP server in the background.
 pub fn start(rt: &tokio::runtime::Runtime) {
     rt.spawn(async move {
         let app = Router::new()
             .route("/", get(page_handler))
             .route("/api/config", get(get_config))
-            .route("/api/config", post(save_config))
+            .route("/api/config/form", post(save_form))
+            .route("/api/config/yaml", post(save_yaml))
             .route("/api/reload", post(reload_config))
             .layer(CorsLayer::permissive());
 
@@ -34,7 +37,6 @@ pub fn start(rt: &tokio::runtime::Runtime) {
     });
 }
 
-/// Open the settings page in the default browser.
 pub fn open_in_browser() {
     let url = format!("http://127.0.0.1:{PORT}");
     if let Err(e) = open::that(&url) {
@@ -42,33 +44,75 @@ pub fn open_in_browser() {
     }
 }
 
-// ─── Handlers ──────────────────────────────────────────────
+// -- Handlers --
 
 async fn page_handler() -> Html<&'static str> {
     Html(include_str!("settings.html"))
 }
 
-async fn get_config() -> Result<String, (StatusCode, String)> {
+/// Return both raw YAML and parsed JSON.
+async fn get_config() -> Result<axum::response::Json<serde_json::Value>, (StatusCode, String)> {
     let path = config::config_path();
-    std::fs::read_to_string(&path).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to read config: {e}"))
-    })
+    let raw = std::fs::read_to_string(&path).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("read failed: {e}"))
+    })?;
+
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&raw)
+        .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
+    let json = serde_json::to_value(&parsed)
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+
+    Ok(axum::response::Json(serde_json::json!({
+        "raw": raw,
+        "config": json,
+    })))
 }
 
-async fn save_config(Json(payload): Json<SaveConfigRequest>) -> Result<String, (StatusCode, String)> {
-    // Validate YAML before saving
-    let _: serde_yaml::Value = serde_yaml::from_str(&payload.content).map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("invalid YAML: {e}"))
-    })?;
-
+/// Save from form: receive JSON partial, merge into existing YAML, write back.
+async fn save_form(
+    Json(patch): Json<serde_json::Value>,
+) -> Result<String, (StatusCode, String)> {
     let path = config::config_path();
-    std::fs::write(&path, &payload.content).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to write config: {e}"))
-    })?;
+    let raw = std::fs::read_to_string(&path).unwrap_or_default();
 
-    // Reload config in koe-core
+    // Parse existing config as a YAML mapping
+    let mut root: serde_yaml::Value = if raw.trim().is_empty() {
+        serde_yaml::Value::Mapping(Default::default())
+    } else {
+        serde_yaml::from_str(&raw).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("existing config parse error: {e}"))
+        })?
+    };
+
+    // Convert the JSON patch to a YAML value and deep-merge
+    let patch_yaml: serde_yaml::Value = serde_json::from_value::<serde_yaml::Value>(patch)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid patch: {e}")))?;
+
+    deep_merge(&mut root, &patch_yaml);
+
+    // Write back
+    let output = serde_yaml::to_string(&root)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("serialize error: {e}")))?;
+
+    config::atomic_write_config(&output)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write error: {e}")))?;
+
     let _ = koe_core::api::reload_config();
+    Ok(r#"{"ok":true}"#.to_string())
+}
 
+/// Save from YAML tab: overwrite config.yaml with raw text.
+async fn save_yaml(
+    Json(payload): Json<SaveYamlRequest>,
+) -> Result<String, (StatusCode, String)> {
+    // Validate YAML
+    let _: serde_yaml::Value = serde_yaml::from_str(&payload.content)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid YAML: {e}")))?;
+
+    config::atomic_write_config(&payload.content)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write error: {e}")))?;
+
+    let _ = koe_core::api::reload_config();
     Ok(r#"{"ok":true}"#.to_string())
 }
 
@@ -80,6 +124,25 @@ async fn reload_config() -> Result<String, (StatusCode, String)> {
 }
 
 #[derive(serde::Deserialize)]
-struct SaveConfigRequest {
+struct SaveYamlRequest {
     content: String,
+}
+
+/// Deep-merge `patch` into `base`. Patch values overwrite base values;
+/// mappings are merged recursively; non-mapping patch values replace base.
+fn deep_merge(base: &mut serde_yaml::Value, patch: &serde_yaml::Value) {
+    match (base, patch) {
+        (serde_yaml::Value::Mapping(base_map), serde_yaml::Value::Mapping(patch_map)) => {
+            for (key, patch_val) in patch_map {
+                if let Some(base_val) = base_map.get_mut(key) {
+                    deep_merge(base_val, patch_val);
+                } else {
+                    base_map.insert(key.clone(), patch_val.clone());
+                }
+            }
+        }
+        (base, patch) => {
+            *base = patch.clone();
+        }
+    }
 }
