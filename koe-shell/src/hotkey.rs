@@ -29,11 +29,17 @@ pub fn init() {
 pub fn poll_events() {}
 
 fn on_event(event: Event) {
-    // Only react to key press, not release
-    if let EventType::KeyPress(key) = event.event_type {
-        if key == TRIGGER_KEY {
-            toggle_session();
+    match event.event_type {
+        EventType::KeyPress(key) => {
+            log::debug!("key press: {key:?}");
+            if key == TRIGGER_KEY {
+                toggle_session();
+            }
         }
+        EventType::KeyRelease(key) => {
+            log::debug!("key release: {key:?}");
+        }
+        _ => {}
     }
 }
 
