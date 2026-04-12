@@ -1,13 +1,8 @@
 //! Microphone capture via cpal, resampled to 16kHz mono PCM16 LE.
-//!
-//! Supports pre-buffering: audio capture starts immediately on `start()`,
-//! frames accumulate in a local buffer. Once `flush_to_core()` is called
-//! (after session_begin creates the audio channel), buffered frames are
-//! pushed to koe-core, and subsequent frames go directly.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, Stream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 struct StreamHolder(#[allow(dead_code)] Stream);
@@ -15,22 +10,12 @@ unsafe impl Send for StreamHolder {}
 unsafe impl Sync for StreamHolder {}
 
 static STREAM: Mutex<Option<StreamHolder>> = Mutex::new(None);
+static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// Pre-buffer for audio captured before session_begin completes.
-static PRE_BUFFER: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
-
-/// Whether koe-core's audio channel is ready (session_begin completed).
-static CORE_READY: AtomicBool = AtomicBool::new(false);
-
-/// Start capturing audio immediately. Frames are buffered locally
-/// until `flush_to_core()` is called.
+/// Start capturing audio from the default input device.
+/// Frames are pushed directly to koe-core.
 pub fn start() -> Result<(), String> {
-    // Reset state
-    CORE_READY.store(false, Ordering::SeqCst);
-    {
-        let mut buf = PRE_BUFFER.lock().unwrap();
-        buf.clear();
-    }
+    FRAME_COUNT.store(0, Ordering::SeqCst);
 
     let host = cpal::default_host();
     let device = host
@@ -66,35 +51,17 @@ pub fn start() -> Result<(), String> {
     let mut slot = STREAM.lock().unwrap();
     *slot = Some(StreamHolder(stream));
 
-    log::info!("audio capture started (pre-buffering)");
+    log::info!("audio capture started");
     Ok(())
-}
-
-/// Flush pre-buffered audio to koe-core and switch to direct mode.
-/// Call this after `session_begin()` completes.
-pub fn flush_to_core() {
-    let frames: Vec<Vec<u8>> = {
-        let mut buf = PRE_BUFFER.lock().unwrap();
-        std::mem::take(&mut *buf)
-    };
-
-    let frame_count = frames.len();
-    for frame in frames {
-        let _ = koe_core::api::push_audio(&frame);
-    }
-
-    CORE_READY.store(true, Ordering::SeqCst);
-    log::info!("flushed {frame_count} pre-buffered audio frames to core");
 }
 
 /// Stop capturing audio.
 pub fn stop() {
-    CORE_READY.store(false, Ordering::SeqCst);
     let mut slot = STREAM.lock().unwrap();
     if slot.take().is_some() {
-        log::info!("audio capture stopped");
+        let frames = FRAME_COUNT.load(Ordering::SeqCst);
+        log::info!("audio capture stopped ({frames} frames pushed)");
     }
-    PRE_BUFFER.lock().unwrap().clear();
 }
 
 fn build_stream<T: cpal::Sample + cpal::SizedSample + Send + 'static>(
@@ -161,17 +128,12 @@ where
         })
         .collect();
 
-    // Either buffer or push directly
-    if CORE_READY.load(Ordering::SeqCst) {
-        let _ = koe_core::api::push_audio(&pcm_bytes);
-    } else {
-        let mut buf = PRE_BUFFER.lock().unwrap();
-        let count = buf.len();
-        buf.push(pcm_bytes);
-        if count % 50 == 0 {
-            log::debug!("pre-buffer: {count} frames buffered, waiting for core");
-        }
+    // Push directly to koe-core
+    let n = FRAME_COUNT.fetch_add(1, Ordering::SeqCst);
+    if n == 0 {
+        log::info!("first audio frame pushed to core");
     }
+    let _ = koe_core::api::push_audio(&pcm_bytes);
 }
 
 fn resample(input: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
