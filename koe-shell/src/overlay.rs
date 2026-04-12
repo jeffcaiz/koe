@@ -108,7 +108,7 @@ mod platform {
                 hInstance: hinstance.into(),
                 hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
                 lpszClassName: class_name,
-                hbrBackground: HBRUSH(0),
+                hbrBackground: HBRUSH(std::ptr::null_mut()),
                 ..Default::default()
             };
             RegisterClassExW(&wc);
@@ -130,7 +130,7 @@ mod platform {
                 WINDOW_HEIGHT,
                 None,
                 None,
-                Some(hinstance.into()),
+                Some(HINSTANCE(hinstance.0)),
                 None,
             )
             .unwrap();
@@ -304,14 +304,14 @@ mod platform {
         );
         let old_font = SelectObject(hdc, font);
 
-        let status: Vec<u16> = state.status_text.encode_utf16().chain(Some(0)).collect();
+        let mut status: Vec<u16> = state.status_text.encode_utf16().chain(Some(0)).collect();
         let mut status_rect = RECT {
             left: 16,
             top: 6,
             right: rect.right - 16,
             bottom: 30,
         };
-        DrawTextW(hdc, &status, &mut status_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+        DrawTextW(hdc, &mut status, &mut status_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
 
         // Interim text (bottom area, smaller, regular weight)
         if !state.interim_text.is_empty() {
@@ -340,7 +340,7 @@ mod platform {
                 state.interim_text.clone()
             };
 
-            let interim: Vec<u16> = display_text.encode_utf16().chain(Some(0)).collect();
+            let mut interim: Vec<u16> = display_text.encode_utf16().chain(Some(0)).collect();
             let mut interim_rect = RECT {
                 left: 16,
                 top: 32,
@@ -348,7 +348,7 @@ mod platform {
                 bottom: rect.bottom - 4,
             };
             SetTextColor(hdc, COLORREF(0x00E0E0E0)); // slightly dimmer
-            DrawTextW(hdc, &interim, &mut interim_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+            DrawTextW(hdc, &mut interim, &mut interim_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
 
             let _ = DeleteObject(small_font);
         }
