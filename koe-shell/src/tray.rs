@@ -18,10 +18,12 @@ pub fn update_status(state: &str) {
 /// Handles tray menu events and hotkey polling.
 pub fn run_event_loop() {
     // Build tray menu
-    let quit_item = MenuItem::new("Quit", true, None);
+    let settings_item = MenuItem::new("Settings...", true, None);
     let reload_item = MenuItem::new("Reload Config", true, None);
+    let quit_item = MenuItem::new("Quit", true, None);
 
     let menu = Menu::new();
+    let _ = menu.append(&settings_item);
     let _ = menu.append(&reload_item);
     let _ = menu.append(&quit_item);
 
@@ -34,6 +36,7 @@ pub fn run_event_loop() {
         .build()
         .expect("failed to create tray icon");
 
+    let settings_id = settings_item.id().clone();
     let quit_id = quit_item.id().clone();
     let reload_id = reload_item.id().clone();
 
@@ -46,7 +49,10 @@ pub fn run_event_loop() {
 
         // Poll tray menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id() == &quit_id {
+            if event.id() == &settings_id {
+                log::info!("opening settings in browser");
+                crate::settings::open_in_browser();
+            } else if event.id() == &quit_id {
                 log::info!("quit requested from tray");
                 break;
             } else if event.id() == &reload_id {
