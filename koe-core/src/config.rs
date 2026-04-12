@@ -981,10 +981,20 @@ impl Default for HotkeySection {
 
 // ─── Config Directory ───────────────────────────────────────────────
 
-/// Returns ~/.koe/
+/// Returns the platform-appropriate config directory for Koe.
+/// - macOS / Linux: ~/.koe/
+/// - Windows: %APPDATA%\koe\
 pub fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".koe")
+    #[cfg(target_os = "windows")]
+    {
+        let appdata = std::env::var("APPDATA").unwrap_or_else(|_| "C:\\".into());
+        PathBuf::from(appdata).join("koe")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        PathBuf::from(home).join(".koe")
+    }
 }
 
 /// Returns ~/.koe/config.yaml
