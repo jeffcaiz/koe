@@ -1,38 +1,37 @@
-//! Global hotkey registration and session lifecycle management.
+//! Global hotkey via raw key event listening.
 //!
-//! MVP: toggle mode only (press once to start, press again to stop).
+//! Uses rdev to listen for key press/release events. Supports single
+//! modifier keys (e.g. Right Alt) as hotkeys.
 
-use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
 use koe_core::api::{self, SessionContext, SessionMode};
+use rdev::{listen, Event, EventType, Key};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
 
 static RECORDING: AtomicBool = AtomicBool::new(false);
 static SESSION_TOKEN: AtomicU64 = AtomicU64::new(1);
 
-/// Initialize the global hotkey system.
-/// Must be called from the main thread before the event loop starts.
+// The trigger key — MVP: hardcoded to Right Alt
+const TRIGGER_KEY: Key = Key::Alt;
+
+/// Start the key listener in a background thread.
+/// Must be called before the main event loop.
 pub fn init() {
-    let manager = GlobalHotKeyManager::new().expect("failed to create hotkey manager");
-
-    // MVP: Left Alt as toggle hotkey.
-    // TODO: read from config and map key names to platform codes
-    let hotkey = HotKey::new(None, global_hotkey::hotkey::Code::AltLeft);
-
-    manager
-        .register(hotkey)
-        .expect("failed to register hotkey");
-
-    log::info!("hotkey registered: Left Alt (toggle mode)");
-
-    // Leak the manager so it lives for the duration of the process.
-    // GlobalHotKeyManager unregisters hotkeys on drop, so we need it alive.
-    std::mem::forget(manager);
+    thread::spawn(|| {
+        log::info!("hotkey registered: Right Alt (toggle mode)");
+        if let Err(e) = listen(on_event) {
+            log::error!("key listener failed: {e:?}");
+        }
+    });
 }
 
-/// Poll and handle hotkey events. Call this from the main event loop.
-pub fn poll_events() {
-    if let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
-        if event.state() == HotKeyState::Pressed {
+/// No-op for compatibility with tray.rs poll loop.
+pub fn poll_events() {}
+
+fn on_event(event: Event) {
+    // Only react to key press, not release
+    if let EventType::KeyPress(key) = event.event_type {
+        if key == TRIGGER_KEY {
             toggle_session();
         }
     }
@@ -42,7 +41,6 @@ fn toggle_session() {
     let was_recording = RECORDING.fetch_xor(true, Ordering::SeqCst);
 
     if !was_recording {
-        // Start recording
         let token = SESSION_TOKEN.fetch_add(1, Ordering::SeqCst);
         let ctx = SessionContext {
             mode: SessionMode::Toggle,
@@ -65,7 +63,6 @@ fn toggle_session() {
 
         log::info!("recording started (token={token})");
     } else {
-        // Stop recording
         crate::audio::stop();
 
         if let Err(e) = api::session_end() {
