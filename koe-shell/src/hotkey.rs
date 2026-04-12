@@ -149,6 +149,14 @@ fn on_event(event: Event) {
 }
 
 fn start_recording() {
+    // 1. Start audio capture IMMEDIATELY — buffer locally
+    if let Err(e) = crate::audio::start() {
+        log::error!("audio start failed: {e}");
+        reset_to_idle();
+        return;
+    }
+
+    // 2. Initialize koe-core session (reads config, creates ASR provider)
     let token = SESSION_TOKEN.fetch_add(1, Ordering::SeqCst);
     let ctx = SessionContext {
         mode: SessionMode::Toggle,
@@ -158,16 +166,13 @@ fn start_recording() {
 
     if let Err(e) = api::session_begin(ctx) {
         log::error!("session_begin failed: {e}");
+        crate::audio::stop();
         reset_to_idle();
         return;
     }
 
-    if let Err(e) = crate::audio::start() {
-        log::error!("audio start failed: {e}");
-        let _ = api::session_cancel();
-        reset_to_idle();
-        return;
-    }
+    // 3. Flush pre-buffered audio to koe-core's channel
+    crate::audio::flush_to_core();
 
     log::info!("recording started (token={token})");
 }
