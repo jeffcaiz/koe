@@ -83,9 +83,8 @@ fn pump_win32_messages() {
     }
 }
 
-/// Create a minimal default icon (16x16 blue square).
+/// Load the embedded Koe app icon (32x32 RGBA).
 fn load_default_icon() -> tray_icon::Icon {
-    let size = 16u32;
-    let rgba: Vec<u8> = vec![0x33, 0x99, 0xFF, 0xFF].repeat((size * size) as usize);
-    tray_icon::Icon::from_rgba(rgba, size, size).expect("failed to create icon")
+    let rgba = include_bytes!("tray_icon.bin");
+    tray_icon::Icon::from_rgba(rgba.to_vec(), 32, 32).expect("failed to create icon")
 }
