@@ -136,7 +136,7 @@ mod platform {
 
     // Icon area
     const BASE_ICON_AREA: f32 = 36.0;
-    const BASE_TEXT_LEFT: f32 = 36.0;
+    const BASE_TEXT_LEFT: f32 = 40.0;
     const BASE_PAD_RIGHT: f32 = 14.0;
 
     // Waveform bars
