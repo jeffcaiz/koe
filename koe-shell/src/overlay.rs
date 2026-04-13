@@ -122,10 +122,13 @@ mod platform {
     const BASE_MIN_PILL_WIDTH: f32 = 180.0;
     const BASE_MAX_PILL_WIDTH: f32 = 600.0;
     const BASE_PILL_HEIGHT_SMALL: f32 = 36.0;
-    const BASE_PILL_HEIGHT_LARGE: f32 = 54.0;
     const BASE_CORNER_RADIUS: f32 = 18.0;
     const BASE_SCREEN_H_MARGIN: f32 = 32.0;
     const BASE_BOTTOM_MARGIN: f32 = 40.0;
+    const BASE_STATUS_AREA_HEIGHT: f32 = 28.0; // space for status text row
+    const BASE_TEXT_TOP_PAD: f32 = 4.0;        // padding above interim text
+    const BASE_TEXT_BOTTOM_PAD: f32 = 8.0;     // padding below interim text
+    const MAX_VISIBLE_LINES: u32 = 3;
 
     // Font
     const BASE_STATUS_FONT: f32 = 15.0;
@@ -320,6 +323,42 @@ mod platform {
             metrics.width.ceil()
         } else {
             0.0
+        }
+    }
+
+    /// Measure wrapped text height given a max width, and return (total_height, line_height).
+    unsafe fn measure_text_height(
+        dwrite: &IDWriteFactory, text: &str, font_size: f32, max_width: f32, dpi: f32,
+    ) -> (f32, f32) {
+        let font_name = to_wide("Segoe UI");
+        let locale = to_wide("en-us");
+        let fmt = match dwrite.CreateTextFormat(
+            windows::core::PCWSTR(font_name.as_ptr()), None,
+            DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+            sc(font_size, dpi), windows::core::PCWSTR(locale.as_ptr()),
+        ) {
+            Ok(f) => f,
+            Err(_) => return (sc(font_size, dpi), sc(font_size, dpi)),
+        };
+        // Word-wrap
+        let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        let wide = to_wide(text);
+        let layout = match dwrite.CreateTextLayout(
+            &wide[..wide.len() - 1], &fmt, max_width.max(1.0), 100000.0,
+        ) {
+            Ok(l) => l,
+            Err(_) => return (sc(font_size, dpi), sc(font_size, dpi)),
+        };
+        let mut metrics = std::mem::zeroed::<DWRITE_TEXT_METRICS>();
+        if layout.GetMetrics(&mut metrics).is_ok() {
+            let line_h = if metrics.lineCount > 0 {
+                metrics.height / metrics.lineCount as f32
+            } else {
+                sc(font_size, dpi)
+            };
+            (metrics.height.ceil(), line_h.ceil())
+        } else {
+            (sc(font_size, dpi), sc(font_size, dpi))
         }
     }
 
@@ -655,22 +694,32 @@ mod platform {
                 } else { 0.0 };
                 draw_diff_text(target, &state.dwrite_factory, diff, progress, &rect, dpi);
             } else {
-                // Normal interim text
+                // Normal interim text — word-wrapped, scroll to bottom
                 if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
                     windows::core::PCWSTR(font_name_wide.as_ptr()), None,
                     DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                     sc(BASE_INTERIM_FONT, dpi), windows::core::PCWSTR(locale_wide.as_ptr()),
                 ) {
-                    let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-                    let _ = fmt.SetTrimming(&DWRITE_TRIMMING {
-                        granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0,
-                    }, None);
+                    let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
                     if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.69, g: 0.69, b: 0.69, a: 1.0 }, None) {
                         let interim_wide = to_wide(&state.interim_text);
-                        target.DrawText(
-                            &interim_wide[..interim_wide.len() - 1], &fmt, &rect, &brush,
-                            D2D1_DRAW_TEXT_OPTIONS_CLIP, DWRITE_MEASURING_MODE_NATURAL,
-                        );
+                        let text_w = rect.right - rect.left;
+                        let viewport_h = rect.bottom - rect.top;
+                        // Create layout to measure full height
+                        if let Ok(layout) = state.dwrite_factory.CreateTextLayout(
+                            &interim_wide[..interim_wide.len() - 1], &fmt, text_w.max(1.0), 100000.0,
+                        ) {
+                            let mut metrics = std::mem::zeroed::<DWRITE_TEXT_METRICS>();
+                            let total_h = if layout.GetMetrics(&mut metrics).is_ok() {
+                                metrics.height
+                            } else { viewport_h };
+                            // Scroll to bottom: offset so last lines are visible
+                            let y_scroll = (total_h - viewport_h).max(0.0);
+                            target.PushAxisAlignedClip(&rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                            let origin = D2D_POINT_2F { x: rect.left, y: rect.top - y_scroll };
+                            target.DrawTextLayout(origin, &layout, &brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                            target.PopAxisAlignedClip();
+                        }
                     }
                 }
             }
@@ -1041,7 +1090,14 @@ mod platform {
         let h = if state.interim_text.is_empty() {
             sc(BASE_PILL_HEIGHT_SMALL, dpi)
         } else {
-            sc(BASE_PILL_HEIGHT_LARGE, dpi)
+            // Measure wrapped interim text height
+            let text_area_w = w - sc(BASE_TEXT_LEFT, dpi) - sc(BASE_PAD_RIGHT, dpi);
+            let (total_h, line_h) = measure_text_height(
+                &state.dwrite_factory, &state.interim_text, BASE_INTERIM_FONT, text_area_w, dpi,
+            );
+            let max_text_h = line_h * MAX_VISIBLE_LINES as f32;
+            let clamped_h = total_h.min(max_text_h).max(line_h);
+            sc(BASE_STATUS_AREA_HEIGHT, dpi) + sc(BASE_TEXT_TOP_PAD, dpi) + clamped_h + sc(BASE_TEXT_BOTTOM_PAD, dpi)
         };
 
         let wi = w.round() as i32;
