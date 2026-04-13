@@ -43,3 +43,6 @@ features = [
     "Win32_System_Console",
     "Win32_UI_HiDpi",
 ]
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
