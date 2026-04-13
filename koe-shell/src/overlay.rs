@@ -140,7 +140,7 @@ mod platform {
     const BAR_WIDTH: f32 = 3.0;
     const BAR_SPACING: f32 = 2.0;
     const BAR_MIN_H: f32 = 3.0;
-    const BAR_MAX_H: f32 = 16.0;
+    const BAR_MAX_H: f32 = 20.0;
 
     // Processing dots
     const DOT_COUNT: usize = 3;
