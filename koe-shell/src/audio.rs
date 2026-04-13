@@ -6,7 +6,7 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, Stream};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 struct StreamHolder(#[allow(dead_code)] Stream);
@@ -18,6 +18,16 @@ static STREAM: Mutex<Option<StreamHolder>> = Mutex::new(None);
 /// Gate: when true, audio frames are pushed to koe-core.
 static GATE_OPEN: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Current audio RMS level (0.0–1.0), stored as f32 bits in AtomicU32.
+/// Updated from the audio callback, read by the overlay for waveform display.
+static AUDIO_LEVEL: AtomicU32 = AtomicU32::new(0);
+
+/// Read the current audio level (0.0–1.0).
+#[allow(dead_code)]
+pub fn audio_level() -> f32 {
+    f32::from_bits(AUDIO_LEVEL.load(Ordering::Relaxed))
+}
 
 /// Initialize the audio stream at program startup. The stream runs
 /// continuously but frames are only pushed when the gate is open.
@@ -142,6 +152,12 @@ where
             sum / channels as f32
         })
         .collect();
+
+    // Compute RMS for overlay waveform
+    let rms = (mono.iter().map(|s| s * s).sum::<f32>() / mono.len().max(1) as f32).sqrt();
+    // Clamp to 0..1 (typical speech RMS is 0.01–0.15, scale up for visual)
+    let level = (rms * 6.0).clamp(0.0, 1.0);
+    AUDIO_LEVEL.store(level.to_bits(), Ordering::Relaxed);
 
     let resampled = if src_rate == dst_rate {
         mono

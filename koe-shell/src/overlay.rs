@@ -215,6 +215,7 @@ mod platform {
         tick: u32,
         alpha: u8,
         target_alpha: u8,
+        audio_level: f32, // 0.0–1.0, smoothed
 
         // Enter/exit Y offset animation
         y_offset: f32,       // current offset in pixels (positive = lower)
@@ -563,7 +564,7 @@ mod platform {
     // ── Icon drawing ────────────────────────────────────────
     unsafe fn draw_icon(target: &ID2D1RenderTarget, state: &OverlayState, cx: f32, cy: f32, dpi: f32) {
         match state.mode {
-            OverlayMode::Waveform => draw_waveform(target, &state.accent_color, state.tick, cx, cy, dpi),
+            OverlayMode::Waveform => draw_waveform(target, &state.accent_color, state.tick, state.audio_level, cx, cy, dpi),
             OverlayMode::Processing => draw_dots(target, &state.accent_color, state.tick, cx, cy, dpi),
             OverlayMode::Success => draw_checkmark(target, &state.accent_color, state.tick, cx, cy, dpi),
             OverlayMode::Error => draw_cross(target, &state.accent_color, cx, cy, dpi),
@@ -571,15 +572,19 @@ mod platform {
         }
     }
 
-    unsafe fn draw_waveform(target: &ID2D1RenderTarget, color: &D2D1_COLOR_F, tick: u32, cx: f32, cy: f32, dpi: f32) {
+    unsafe fn draw_waveform(target: &ID2D1RenderTarget, color: &D2D1_COLOR_F, tick: u32, level: f32, cx: f32, cy: f32, dpi: f32) {
         let bar_w = sc(BAR_WIDTH, dpi);
         let total_w = BAR_COUNT as f32 * bar_w + (BAR_COUNT as f32 - 1.0) * sc(BAR_SPACING, dpi);
         let start_x = cx - total_w / 2.0;
         for i in 0..BAR_COUNT {
+            // Each bar has a sin phase offset for organic movement
             let phase = tick as f64 * 0.12 + i as f64 * 1.1;
-            let t = (0.5 + 0.5 * phase.sin()) as f32;
+            let wave = (0.5 + 0.5 * phase.sin()) as f32; // 0..1 oscillation
+            // Mix audio level with subtle idle animation
+            let idle = 0.08; // minimum movement when silent
+            let t = idle + (1.0 - idle) * level * (0.4 + 0.6 * wave);
             let h = sc(BAR_MIN_H + t * (BAR_MAX_H - BAR_MIN_H), dpi);
-            let alpha = 0.55 + 0.45 * t;
+            let alpha = 0.45 + 0.55 * t;
             if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: color.r, g: color.g, b: color.b, a: alpha }, None) {
                 let x = start_x + i as f32 * (bar_w + sc(BAR_SPACING, dpi));
                 target.FillRoundedRectangle(&D2D1_ROUNDED_RECT {
@@ -831,7 +836,7 @@ mod platform {
                 visible: false, hwnd,
                 dismiss_at: None,
                 dc_target, render_target, dwrite_factory,
-                tick: 0, alpha: 0, target_alpha: 0,
+                tick: 0, alpha: 0, target_alpha: 0, audio_level: 0.0,
                 y_offset: sc(ENTRANCE_LIFT, dpi_val),
                 y_offset_target: 0.0,
                 pill_x: 0, pill_y: 0,
@@ -1001,9 +1006,16 @@ mod platform {
             }
         }
 
-        // Animation tick
+        // Animation tick + audio level
         if state.visible || state.alpha > 0 {
             state.tick = state.tick.wrapping_add(1);
+            // Smooth audio level (fast attack, slow decay)
+            let raw = crate::audio::audio_level();
+            if raw > state.audio_level {
+                state.audio_level += (raw - state.audio_level) * 0.6; // fast attack
+            } else {
+                state.audio_level += (raw - state.audio_level) * 0.15; // slow decay
+            }
             needs_render = true;
         }
 
