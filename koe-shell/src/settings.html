@@ -15,6 +15,7 @@
     --accent-hover: #6ab4ff;
     --success: #4caf50;
     --error: #f44336;
+    --danger: #e53935;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -68,15 +69,20 @@
     display: block; font-size: 12px; color: var(--text-dim);
     margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
   }
-  .field input, .field select {
+  .field label.inline {
+    display: inline; text-transform: none; letter-spacing: normal;
+    font-size: 14px; color: var(--text);
+  }
+  .field input, .field select, .field textarea {
     width: 100%; padding: 8px 10px; background: var(--bg);
     border: 1px solid var(--border); border-radius: 4px;
     color: var(--text); font-size: 14px; font-family: inherit;
   }
-  .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
-  .field input[type="checkbox"] { width: auto; margin-right: 6px; }
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  .field input[type="checkbox"] { width: auto; margin-right: 6px; vertical-align: middle; }
   .field .hint { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
   .btn {
     padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px;
     background: var(--surface); color: var(--text); font-size: 13px;
@@ -85,6 +91,9 @@
   .btn:hover { background: rgba(255,255,255,0.08); }
   .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .btn-primary:hover { background: var(--accent-hover); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-danger { color: var(--danger); border-color: var(--danger); }
+  .btn-danger:hover { background: rgba(229,57,53,0.15); }
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     padding: 10px 20px; border-radius: 8px; font-size: 13px; color: #fff;
@@ -110,6 +119,35 @@
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
+  /* Profile card */
+  .profile-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px; margin-bottom: 10px;
+  }
+  .profile-card.active-profile { border-color: var(--accent); }
+  .profile-card-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+  }
+  .profile-card-header .profile-name { font-weight: 600; font-size: 14px; }
+  .profile-card-header .profile-actions { display: flex; gap: 6px; align-items: center; }
+  .profile-card-body { display: none; }
+  .profile-card.expanded .profile-card-body { display: block; }
+  .badge {
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: var(--accent); color: #fff; text-transform: uppercase;
+  }
+  /* Template list */
+  .template-item {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 8px;
+  }
+  .template-item-header {
+    display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer;
+  }
+  .template-item-body { display: none; padding-top: 10px; }
+  .template-item.expanded .template-item-body { display: block; }
 </style>
 </head>
 <body>
@@ -137,37 +175,131 @@
         <div class="field">
           <label>Provider</label>
           <select id="asr-provider">
-            <option value="doubaoime">Doubao IME (default, no key needed)</option>
+            <option value="doubaoime">Doubao IME (free, no key needed)</option>
             <option value="doubao">Doubao (official API)</option>
             <option value="qwen">Qwen (Alibaba DashScope)</option>
-            <option value="sherpa-onnx">Sherpa-ONNX (local)</option>
+            <option value="sherpa-onnx">Sherpa-ONNX (local CPU)</option>
           </select>
         </div>
-        <div id="asr-qwen-fields" style="display:none">
+
+        <!-- DoubaoIME fields -->
+        <div id="asr-doubaoime-fields" class="asr-provider-fields" style="display:none">
+          <div class="field">
+            <label>Credential Path</label>
+            <input id="asr-doubaoime-credential-path" placeholder="doubaoime_credentials.json">
+            <div class="hint">Relative to ~/.koe/</div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Connect Timeout (ms)</label>
+              <input type="number" id="asr-doubaoime-connect-timeout" value="3000">
+            </div>
+            <div class="field">
+              <label>Final Wait Timeout (ms)</label>
+              <input type="number" id="asr-doubaoime-final-wait-timeout" value="5000">
+            </div>
+          </div>
+        </div>
+
+        <!-- Doubao fields -->
+        <div id="asr-doubao-fields" class="asr-provider-fields" style="display:none">
+          <div class="row">
+            <div class="field">
+              <label>App Key</label>
+              <input id="asr-doubao-app-key" placeholder="X-Api-App-Key">
+            </div>
+            <div class="field">
+              <label>Access Key</label>
+              <input type="password" id="asr-doubao-access-key" placeholder="X-Api-Access-Key">
+            </div>
+          </div>
+          <div class="field">
+            <label>URL</label>
+            <input id="asr-doubao-url" placeholder="wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async">
+          </div>
+          <div class="field">
+            <label>Resource ID</label>
+            <input id="asr-doubao-resource-id" placeholder="volc.seedasr.sauc.duration">
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Connect Timeout (ms)</label>
+              <input type="number" id="asr-doubao-connect-timeout" value="3000">
+            </div>
+            <div class="field">
+              <label>Final Wait Timeout (ms)</label>
+              <input type="number" id="asr-doubao-final-wait-timeout" value="5000">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label><input type="checkbox" id="asr-doubao-enable-ddc" checked> <span class="inline">DDC (semantic smoothing)</span></label>
+            </div>
+            <div class="field">
+              <label><input type="checkbox" id="asr-doubao-enable-itn" checked> <span class="inline">ITN (text normalization)</span></label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label><input type="checkbox" id="asr-doubao-enable-punc" checked> <span class="inline">Auto punctuation</span></label>
+            </div>
+            <div class="field">
+              <label><input type="checkbox" id="asr-doubao-enable-nonstream" checked> <span class="inline">Non-stream (2nd pass)</span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Qwen fields -->
+        <div id="asr-qwen-fields" class="asr-provider-fields" style="display:none">
           <div class="field">
             <label>API Key</label>
             <input type="password" id="asr-qwen-api-key" placeholder="sk-...">
           </div>
+          <div class="field">
+            <label>URL</label>
+            <input id="asr-qwen-url" placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime">
+          </div>
           <div class="row">
             <div class="field">
               <label>Model</label>
-              <input id="asr-qwen-model" placeholder="paraformer-realtime-v2">
+              <input id="asr-qwen-model" placeholder="qwen3-asr-flash-realtime">
             </div>
             <div class="field">
               <label>Language</label>
               <input id="asr-qwen-language" value="zh" placeholder="zh">
             </div>
           </div>
-        </div>
-        <div id="asr-doubao-fields" style="display:none">
           <div class="row">
             <div class="field">
-              <label>App Key</label>
-              <input id="asr-doubao-app-key" placeholder="App key">
+              <label>Connect Timeout (ms)</label>
+              <input type="number" id="asr-qwen-connect-timeout" value="3000">
             </div>
             <div class="field">
-              <label>Access Key</label>
-              <input type="password" id="asr-doubao-access-key" placeholder="Access key">
+              <label>Final Wait Timeout (ms)</label>
+              <input type="number" id="asr-qwen-final-wait-timeout" value="5000">
+            </div>
+          </div>
+        </div>
+
+        <!-- Sherpa-ONNX fields -->
+        <div id="asr-sherpa-onnx-fields" class="asr-provider-fields" style="display:none">
+          <div class="field">
+            <label>Model</label>
+            <input id="asr-sherpa-onnx-model" placeholder="sherpa-onnx/bilingual-zh-en">
+            <div class="hint">Relative to ~/.koe/models/, or absolute path</div>
+          </div>
+          <div class="row3">
+            <div class="field">
+              <label>Threads</label>
+              <input type="number" id="asr-sherpa-onnx-num-threads" value="2" min="1" max="16">
+            </div>
+            <div class="field">
+              <label>Hotwords Score</label>
+              <input type="number" id="asr-sherpa-onnx-hotwords-score" value="1.5" step="0.1">
+            </div>
+            <div class="field">
+              <label>Endpoint Silence (s)</label>
+              <input type="number" id="asr-sherpa-onnx-endpoint-silence" value="1.2" step="0.1">
             </div>
           </div>
         </div>
@@ -180,21 +312,64 @@
         LLM (Text Correction) <span class="arrow">&#9660;</span>
       </div>
       <div class="section-body">
-        <div class="field">
-          <label><input type="checkbox" id="llm-enabled" checked> Enable LLM correction</label>
+        <div class="row">
+          <div class="field">
+            <label><input type="checkbox" id="llm-enabled" checked> <span class="inline">Enable LLM correction</span></label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="llm-prompt-templates-enabled"> <span class="inline">Enable prompt template buttons</span></label>
+          </div>
         </div>
+
+        <!-- Active profile selector -->
         <div class="field">
-          <label>Base URL</label>
-          <input id="llm-base-url" placeholder="https://api.openai.com/v1">
-          <div class="hint">OpenAI-compatible endpoint. Works with OpenAI, DeepSeek, Alibaba Bailian, etc.</div>
+          <label>Active Profile</label>
+          <select id="llm-active-profile"></select>
         </div>
-        <div class="field">
-          <label>API Key</label>
-          <input type="password" id="llm-api-key" placeholder="sk-...">
-        </div>
-        <div class="field">
-          <label>Model</label>
-          <input id="llm-model" placeholder="gpt-4o-mini">
+
+        <!-- Profile cards -->
+        <div id="llm-profiles-container"></div>
+        <button class="btn btn-sm" onclick="addProfile()" style="margin-top: 8px">+ Add Profile</button>
+
+        <!-- Global LLM parameters -->
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);">
+          <div class="row">
+            <div class="field">
+              <label>Temperature</label>
+              <input type="number" id="llm-temperature" value="0" min="0" max="2" step="0.1">
+            </div>
+            <div class="field">
+              <label>Top P</label>
+              <input type="number" id="llm-top-p" value="1" min="0" max="1" step="0.05">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Timeout (ms)</label>
+              <input type="number" id="llm-timeout" value="8000" min="1000" max="60000" step="1000">
+            </div>
+            <div class="field">
+              <label>Max Output Tokens</label>
+              <input type="number" id="llm-max-output-tokens" value="1024" min="1">
+            </div>
+          </div>
+          <div class="field">
+            <label>Dictionary Max Candidates</label>
+            <input type="number" id="llm-dictionary-max-candidates" value="0" min="0">
+            <div class="hint">0 = send all dictionary entries to LLM</div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>System Prompt Path</label>
+              <input id="llm-system-prompt-path" placeholder="system_prompt.txt">
+              <div class="hint">Relative to ~/.koe/</div>
+            </div>
+            <div class="field">
+              <label>User Prompt Path</label>
+              <input id="llm-user-prompt-path" placeholder="user_prompt.txt">
+              <div class="hint">Relative to ~/.koe/</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -211,20 +386,118 @@
             <select id="hotkey-trigger">
               <option value="right_alt">Right Alt</option>
               <option value="left_alt">Left Alt</option>
+              <option value="right_ctrl">Right Ctrl</option>
+              <option value="left_control">Left Ctrl</option>
+              <option value="caps_lock">Caps Lock</option>
               <option value="f1">F1</option>
               <option value="f2">F2</option>
               <option value="f3">F3</option>
               <option value="f4">F4</option>
-              <option value="caps_lock">Caps Lock</option>
-              <option value="right_ctrl">Right Ctrl</option>
+              <option value="f5">F5</option>
+              <option value="f6">F6</option>
             </select>
           </div>
           <div class="field">
-            <label>Hold Threshold (ms)</label>
-            <input type="number" id="hotkey-hold-threshold" value="300" min="100" max="1000">
-            <div class="hint">Below this = tap (toggle), above = hold-to-talk</div>
+            <label>Trigger Mode</label>
+            <select id="hotkey-trigger-mode">
+              <option value="hold">Hold (press-and-hold)</option>
+              <option value="toggle">Toggle (tap to start/stop)</option>
+            </select>
           </div>
         </div>
+        <div class="field">
+          <label>LLM Invert Modifier</label>
+          <select id="hotkey-llm-invert-modifier">
+            <option value="control">Control</option>
+            <option value="option">Option / Alt</option>
+            <option value="command">Command / Win</option>
+            <option value="shift">Shift</option>
+            <option value="fn">Fn</option>
+            <option value="none">None (disabled)</option>
+          </select>
+          <div class="hint">Hold this modifier while pressing the trigger key to invert LLM correction (skip if enabled, use if disabled)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feedback -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Feedback (Sounds) <span class="arrow">&#9660;</span>
+      </div>
+      <div class="section-body">
+        <div class="row3">
+          <div class="field">
+            <label><input type="checkbox" id="feedback-start-sound"> <span class="inline">Start sound</span></label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="feedback-stop-sound"> <span class="inline">Stop sound</span></label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="feedback-error-sound"> <span class="inline">Error sound</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Overlay <span class="arrow">&#9660;</span>
+      </div>
+      <div class="section-body">
+        <div class="row">
+          <div class="field">
+            <label>Font Family</label>
+            <input id="overlay-font-family" placeholder="system">
+          </div>
+          <div class="field">
+            <label>Font Size</label>
+            <input type="number" id="overlay-font-size" value="13" min="8" max="72">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Bottom Margin (px)</label>
+            <input type="number" id="overlay-bottom-margin" value="10" min="0">
+          </div>
+          <div class="field">
+            <label>Max Visible Lines</label>
+            <input type="number" id="overlay-max-visible-lines" value="3" min="1" max="20">
+          </div>
+        </div>
+        <div class="field">
+          <label><input type="checkbox" id="overlay-limit-visible-lines" checked> <span class="inline">Limit visible lines</span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dictionary -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Dictionary <span class="arrow">&#9660;</span>
+      </div>
+      <div class="section-body">
+        <div class="field">
+          <label>Dictionary Path</label>
+          <input id="dictionary-path" placeholder="dictionary.txt">
+          <div class="hint">Relative to ~/.koe/. One term per line, used to boost LLM correction accuracy.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompt Templates -->
+    <div class="section">
+      <div class="section-header" onclick="toggleSection(this)">
+        Prompt Templates <span class="arrow">&#9660;</span>
+      </div>
+      <div class="section-body">
+        <div class="hint" style="margin-bottom: 10px">
+          Prompt templates allow rewriting ASR text with different system prompts (e.g. translate to English).
+          Shown as overlay buttons after transcription when enabled above.
+        </div>
+        <div id="prompt-templates-container"></div>
+        <button class="btn btn-sm" onclick="addTemplate()" style="margin-top: 8px">+ Add Template</button>
       </div>
     </div>
   </div>
@@ -239,7 +512,7 @@
 <div id="toast" class="toast"></div>
 
 <script>
-// Tab switching
+// ── Tab switching ───────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(function(tab) {
   tab.addEventListener('click', function() {
     document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
@@ -249,19 +522,22 @@ document.querySelectorAll('.tab').forEach(function(tab) {
   });
 });
 
-// Section toggle
+// ── Section toggle ──────────────────────────────────────────────────
 function toggleSection(header) {
   header.classList.toggle('collapsed');
   header.nextElementSibling.classList.toggle('hidden');
 }
 
-// ASR provider toggle
+// ── ASR provider toggle ─────────────────────────────────────────────
 document.getElementById('asr-provider').addEventListener('change', function() {
-  document.getElementById('asr-qwen-fields').style.display = this.value === 'qwen' ? 'block' : 'none';
-  document.getElementById('asr-doubao-fields').style.display = this.value === 'doubao' ? 'block' : 'none';
+  document.querySelectorAll('.asr-provider-fields').forEach(function(el) {
+    el.style.display = 'none';
+  });
+  var fields = document.getElementById('asr-' + this.value + '-fields');
+  if (fields) fields.style.display = 'block';
 });
 
-// Toast
+// ── Toast ───────────────────────────────────────────────────────────
 function showToast(msg, type) {
   var el = document.getElementById('toast');
   el.textContent = msg;
@@ -269,7 +545,7 @@ function showToast(msg, type) {
   setTimeout(function() { el.classList.remove('show'); }, 2000);
 }
 
-// Safely read nested config value
+// ── Helpers ─────────────────────────────────────────────────────────
 function dig(obj) {
   var v = obj;
   for (var i = 1; i < arguments.length; i++) {
@@ -279,76 +555,355 @@ function dig(obj) {
   return v != null ? v : '';
 }
 
-// Load config
+function setVal(id, val, fallback) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.value = (val !== '' && val != null) ? val : (fallback || '');
+}
+
+function setBool(id, val, fallback) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.checked = (val != null && val !== '') ? !!val : !!fallback;
+}
+
+function setSelect(id, val, fallback) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var target = (val !== '' && val != null) ? val : (fallback || '');
+  for (var i = 0; i < el.options.length; i++) {
+    if (el.options[i].value === target) {
+      el.value = target;
+      return;
+    }
+  }
+  if (fallback) el.value = fallback;
+}
+
+// ── Load config ─────────────────────────────────────────────────────
 var rawYaml = '';
+var loadedConfig = {};
 
 async function loadConfig() {
   try {
     var res = await fetch('/api/config');
     var data = await res.json();
     rawYaml = data.raw;
+    loadedConfig = data.config || {};
     document.getElementById('yaml-editor').value = rawYaml;
-    populateForm(data.config);
+    populateForm(loadedConfig);
   } catch (e) {
     showToast('Failed to load config', 'error');
   }
 }
 
 function populateForm(cfg) {
-  // ASR
+  // ── ASR ──
   var provider = dig(cfg, 'asr', 'provider') || 'doubaoime';
   var sel = document.getElementById('asr-provider');
-  sel.value = provider;
+  setSelect('asr-provider', provider, 'doubaoime');
   sel.dispatchEvent(new Event('change'));
 
-  document.getElementById('asr-qwen-api-key').value = dig(cfg, 'asr', 'qwen', 'api_key');
-  document.getElementById('asr-qwen-model').value = dig(cfg, 'asr', 'qwen', 'model') || 'paraformer-realtime-v2';
-  document.getElementById('asr-qwen-language').value = dig(cfg, 'asr', 'qwen', 'language') || 'zh';
-  document.getElementById('asr-doubao-app-key').value = dig(cfg, 'asr', 'doubao', 'app_key');
-  document.getElementById('asr-doubao-access-key').value = dig(cfg, 'asr', 'doubao', 'access_key');
+  // DoubaoIME
+  setVal('asr-doubaoime-credential-path', dig(cfg, 'asr', 'doubaoime', 'credential_path'), 'doubaoime_credentials.json');
+  setVal('asr-doubaoime-connect-timeout', dig(cfg, 'asr', 'doubaoime', 'connect_timeout_ms'), '3000');
+  setVal('asr-doubaoime-final-wait-timeout', dig(cfg, 'asr', 'doubaoime', 'final_wait_timeout_ms'), '5000');
 
-  // LLM - read from first profile
-  document.getElementById('llm-enabled').checked = dig(cfg, 'llm', 'enabled') !== false;
+  // Doubao
+  setVal('asr-doubao-app-key', dig(cfg, 'asr', 'doubao', 'app_key'));
+  setVal('asr-doubao-access-key', dig(cfg, 'asr', 'doubao', 'access_key'));
+  setVal('asr-doubao-url', dig(cfg, 'asr', 'doubao', 'url'), 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async');
+  setVal('asr-doubao-resource-id', dig(cfg, 'asr', 'doubao', 'resource_id'), 'volc.seedasr.sauc.duration');
+  setVal('asr-doubao-connect-timeout', dig(cfg, 'asr', 'doubao', 'connect_timeout_ms'), '3000');
+  setVal('asr-doubao-final-wait-timeout', dig(cfg, 'asr', 'doubao', 'final_wait_timeout_ms'), '5000');
+  setBool('asr-doubao-enable-ddc', dig(cfg, 'asr', 'doubao', 'enable_ddc'), true);
+  setBool('asr-doubao-enable-itn', dig(cfg, 'asr', 'doubao', 'enable_itn'), true);
+  setBool('asr-doubao-enable-punc', dig(cfg, 'asr', 'doubao', 'enable_punc'), true);
+  setBool('asr-doubao-enable-nonstream', dig(cfg, 'asr', 'doubao', 'enable_nonstream'), true);
+
+  // Qwen
+  setVal('asr-qwen-api-key', dig(cfg, 'asr', 'qwen', 'api_key'));
+  setVal('asr-qwen-url', dig(cfg, 'asr', 'qwen', 'url'), 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime');
+  setVal('asr-qwen-model', dig(cfg, 'asr', 'qwen', 'model'), 'qwen3-asr-flash-realtime');
+  setVal('asr-qwen-language', dig(cfg, 'asr', 'qwen', 'language'), 'zh');
+  setVal('asr-qwen-connect-timeout', dig(cfg, 'asr', 'qwen', 'connect_timeout_ms'), '3000');
+  setVal('asr-qwen-final-wait-timeout', dig(cfg, 'asr', 'qwen', 'final_wait_timeout_ms'), '5000');
+
+  // Sherpa-ONNX
+  setVal('asr-sherpa-onnx-model', dig(cfg, 'asr', 'sherpa-onnx', 'model'), 'sherpa-onnx/bilingual-zh-en');
+  setVal('asr-sherpa-onnx-num-threads', dig(cfg, 'asr', 'sherpa-onnx', 'num_threads'), '2');
+  setVal('asr-sherpa-onnx-hotwords-score', dig(cfg, 'asr', 'sherpa-onnx', 'hotwords_score'), '1.5');
+  setVal('asr-sherpa-onnx-endpoint-silence', dig(cfg, 'asr', 'sherpa-onnx', 'endpoint_silence'), '1.2');
+
+  // ── LLM ──
+  setBool('llm-enabled', dig(cfg, 'llm', 'enabled'), true);
+  setBool('llm-prompt-templates-enabled', dig(cfg, 'llm', 'prompt_templates_enabled'), false);
+  setVal('llm-temperature', dig(cfg, 'llm', 'temperature'), '0');
+  setVal('llm-top-p', dig(cfg, 'llm', 'top_p'), '1');
+  setVal('llm-timeout', dig(cfg, 'llm', 'timeout_ms'), '8000');
+  setVal('llm-max-output-tokens', dig(cfg, 'llm', 'max_output_tokens'), '1024');
+  setVal('llm-dictionary-max-candidates', dig(cfg, 'llm', 'dictionary_max_candidates'), '0');
+  setVal('llm-system-prompt-path', dig(cfg, 'llm', 'system_prompt_path'), 'system_prompt.txt');
+  setVal('llm-user-prompt-path', dig(cfg, 'llm', 'user_prompt_path'), 'user_prompt.txt');
+
+  // LLM Profiles
+  var activeProfile = dig(cfg, 'llm', 'active_profile') || 'openai';
   var profiles = dig(cfg, 'llm', 'profiles');
-  if (profiles && typeof profiles === 'object') {
-    var keys = Object.keys(profiles);
-    if (keys.length > 0) {
-      var p = profiles[keys[0]];
-      document.getElementById('llm-base-url').value = p.base_url || '';
-      document.getElementById('llm-api-key').value = p.api_key || '';
-      document.getElementById('llm-model').value = p.model || '';
-    }
-  }
+  renderProfiles(profiles, activeProfile);
 
-  // Hotkey
-  var triggerKey = dig(cfg, 'hotkey', 'trigger_key') || 'fn';
-  var hotkeySelect = document.getElementById('hotkey-trigger');
-  var found = false;
-  for (var i = 0; i < hotkeySelect.options.length; i++) {
-    if (hotkeySelect.options[i].value === triggerKey) {
-      hotkeySelect.value = triggerKey;
-      found = true;
-      break;
-    }
-  }
-  if (!found) hotkeySelect.value = 'right_alt';
+  // ── Hotkey ──
+  setSelect('hotkey-trigger', dig(cfg, 'hotkey', 'trigger_key'), 'right_alt');
+  setSelect('hotkey-trigger-mode', dig(cfg, 'hotkey', 'trigger_mode'), 'hold');
+  setSelect('hotkey-llm-invert-modifier', dig(cfg, 'hotkey', 'llm_invert_modifier'), 'control');
+
+  // ── Feedback ──
+  setBool('feedback-start-sound', dig(cfg, 'feedback', 'start_sound'), false);
+  setBool('feedback-stop-sound', dig(cfg, 'feedback', 'stop_sound'), false);
+  setBool('feedback-error-sound', dig(cfg, 'feedback', 'error_sound'), false);
+
+  // ── Overlay ──
+  setVal('overlay-font-family', dig(cfg, 'overlay', 'font_family'), 'system');
+  setVal('overlay-font-size', dig(cfg, 'overlay', 'font_size'), '13');
+  setVal('overlay-bottom-margin', dig(cfg, 'overlay', 'bottom_margin'), '10');
+  setVal('overlay-max-visible-lines', dig(cfg, 'overlay', 'max_visible_lines'), '3');
+  setBool('overlay-limit-visible-lines', dig(cfg, 'overlay', 'limit_visible_lines'), true);
+
+  // ── Dictionary ──
+  setVal('dictionary-path', dig(cfg, 'dictionary', 'path'), 'dictionary.txt');
+
+  // ── Prompt Templates ──
+  var templates = cfg.prompt_templates || [];
+  renderTemplates(templates);
 }
 
-// Save config
+// ── LLM Profiles ────────────────────────────────────────────────────
+function renderProfiles(profiles, activeId) {
+  var container = document.getElementById('llm-profiles-container');
+  var selector = document.getElementById('llm-active-profile');
+  container.innerHTML = '';
+  selector.innerHTML = '';
+
+  if (!profiles || typeof profiles !== 'object') {
+    profiles = {};
+  }
+
+  var keys = Object.keys(profiles);
+  keys.forEach(function(id) {
+    var p = profiles[id];
+    var isActive = (id === activeId);
+
+    // Selector option
+    var opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = p.name || id;
+    if (isActive) opt.selected = true;
+    selector.appendChild(opt);
+
+    // Profile card
+    var card = document.createElement('div');
+    card.className = 'profile-card' + (isActive ? ' active-profile' : '');
+    card.dataset.profileId = id;
+
+    var providerLabel = (p.provider === 'mlx') ? 'MLX' : 'OpenAI Compatible';
+
+    card.innerHTML =
+      '<div class="profile-card-header" onclick="toggleProfileCard(this.parentNode)">' +
+        '<span class="profile-name">' + escHtml(p.name || id) + (isActive ? ' <span class="badge">active</span>' : '') + '</span>' +
+        '<span class="profile-actions">' +
+          '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); removeProfile(\'' + escHtml(id) + '\')">Remove</button>' +
+        '</span>' +
+      '</div>' +
+      '<div class="profile-card-body">' +
+        '<div class="field"><label>Profile ID</label><input class="p-id" value="' + escAttr(id) + '" readonly></div>' +
+        '<div class="field"><label>Display Name</label><input class="p-name" value="' + escAttr(p.name || '') + '"></div>' +
+        '<div class="field"><label>Provider</label>' +
+          '<select class="p-provider" onchange="toggleMlxFields(this.closest(\'.profile-card\'))">' +
+            '<option value="openai"' + (p.provider !== 'mlx' ? ' selected' : '') + '>OpenAI Compatible</option>' +
+            '<option value="mlx"' + (p.provider === 'mlx' ? ' selected' : '') + '>MLX (Apple Silicon)</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="p-openai-fields"' + (p.provider === 'mlx' ? ' style="display:none"' : '') + '>' +
+          '<div class="field"><label>Base URL</label><input class="p-base-url" value="' + escAttr(p.base_url || '') + '" placeholder="https://api.openai.com/v1"></div>' +
+          '<div class="field"><label>API Key</label><input type="password" class="p-api-key" value="' + escAttr(p.api_key || '') + '" placeholder="sk-..."></div>' +
+          '<div class="field"><label>Model</label><input class="p-model" value="' + escAttr(p.model || '') + '" placeholder="gpt-4o-mini"></div>' +
+          '<div class="row">' +
+            '<div class="field"><label>Max Token Parameter</label>' +
+              '<select class="p-max-token-param">' +
+                '<option value="max_completion_tokens"' + (p.max_token_parameter === 'max_completion_tokens' ? ' selected' : '') + '>max_completion_tokens</option>' +
+                '<option value="max_tokens"' + (p.max_token_parameter === 'max_tokens' ? ' selected' : '') + '>max_tokens</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="field"><label>No-Reasoning Control</label>' +
+              '<select class="p-no-reasoning">' +
+                '<option value="reasoning_effort"' + ((!p.no_reasoning_control || p.no_reasoning_control === 'reasoning_effort') ? ' selected' : '') + '>reasoning_effort</option>' +
+                '<option value="thinking"' + (p.no_reasoning_control === 'thinking' ? ' selected' : '') + '>thinking</option>' +
+                '<option value="none"' + (p.no_reasoning_control === 'none' ? ' selected' : '') + '>none</option>' +
+              '</select>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="p-mlx-fields"' + (p.provider !== 'mlx' ? ' style="display:none"' : '') + '>' +
+          '<div class="field"><label>MLX Model</label><input class="p-mlx-model" value="' + escAttr(dig(p, 'mlx', 'model') || '') + '" placeholder="mlx/Qwen3-0.6B-4bit">' +
+            '<div class="hint">Relative to ~/.koe/models/, or absolute path</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    container.appendChild(card);
+  });
+}
+
+function toggleProfileCard(card) {
+  card.classList.toggle('expanded');
+}
+
+function toggleMlxFields(card) {
+  var isMlx = card.querySelector('.p-provider').value === 'mlx';
+  card.querySelector('.p-openai-fields').style.display = isMlx ? 'none' : 'block';
+  card.querySelector('.p-mlx-fields').style.display = isMlx ? 'block' : 'none';
+}
+
+function addProfile() {
+  var id = 'profile_' + Date.now();
+  var profiles = collectProfiles();
+  profiles[id] = { name: 'New Profile', provider: 'openai', base_url: '', api_key: '', model: '' };
+  var activeId = document.getElementById('llm-active-profile').value;
+  renderProfiles(profiles, activeId);
+  // Expand the new card
+  var cards = document.querySelectorAll('.profile-card');
+  if (cards.length > 0) cards[cards.length - 1].classList.add('expanded');
+}
+
+function removeProfile(id) {
+  var cards = document.querySelectorAll('.profile-card');
+  if (cards.length <= 1) {
+    showToast('Cannot remove the last profile', 'error');
+    return;
+  }
+  var profiles = collectProfiles();
+  delete profiles[id];
+  var activeId = document.getElementById('llm-active-profile').value;
+  if (activeId === id) activeId = Object.keys(profiles)[0] || '';
+  renderProfiles(profiles, activeId);
+}
+
+function collectProfiles() {
+  var profiles = {};
+  document.querySelectorAll('.profile-card').forEach(function(card) {
+    var id = card.querySelector('.p-id').value;
+    var provider = card.querySelector('.p-provider').value;
+    var profile = {
+      name: card.querySelector('.p-name').value,
+      provider: provider,
+    };
+    if (provider === 'mlx') {
+      profile.mlx = { model: card.querySelector('.p-mlx-model').value };
+    } else {
+      profile.base_url = card.querySelector('.p-base-url').value;
+      profile.api_key = card.querySelector('.p-api-key').value;
+      profile.model = card.querySelector('.p-model').value;
+      profile.max_token_parameter = card.querySelector('.p-max-token-param').value;
+      profile.no_reasoning_control = card.querySelector('.p-no-reasoning').value;
+    }
+    profiles[id] = profile;
+  });
+  return profiles;
+}
+
+// ── Prompt Templates ────────────────────────────────────────────────
+function renderTemplates(templates) {
+  var container = document.getElementById('prompt-templates-container');
+  container.innerHTML = '';
+
+  if (!Array.isArray(templates)) templates = [];
+
+  templates.forEach(function(t, idx) {
+    var item = document.createElement('div');
+    item.className = 'template-item';
+    item.innerHTML =
+      '<div class="template-item-header" onclick="this.parentNode.classList.toggle(\'expanded\')">' +
+        '<span>' + escHtml(t.name || 'Template ' + (idx + 1)) +
+          (t.shortcut ? ' <span style="color:var(--text-dim);font-size:12px">[' + t.shortcut + ']</span>' : '') +
+        '</span>' +
+        '<span class="profile-actions">' +
+          '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); removeTemplate(' + idx + ')">Remove</button>' +
+        '</span>' +
+      '</div>' +
+      '<div class="template-item-body">' +
+        '<div class="row">' +
+          '<div class="field"><label>Name</label><input class="t-name" value="' + escAttr(t.name || '') + '"></div>' +
+          '<div class="field"><label>Shortcut (1-9)</label><input type="number" class="t-shortcut" value="' + (t.shortcut || '') + '" min="1" max="9"></div>' +
+        '</div>' +
+        '<div class="field"><label><input type="checkbox" class="t-enabled"' + (t.enabled !== false ? ' checked' : '') + '> <span class="inline">Enabled</span></label></div>' +
+        '<div class="field"><label>System Prompt</label>' +
+          '<textarea class="t-system-prompt" rows="3" placeholder="Enter system prompt text...">' + escHtml(t.system_prompt || '') + '</textarea>' +
+        '</div>' +
+        '<div class="field"><label>System Prompt Path (alternative)</label>' +
+          '<input class="t-system-prompt-path" value="' + escAttr(t.system_prompt_path || '') + '" placeholder="e.g. translate_prompt.txt">' +
+          '<div class="hint">Relative to ~/.koe/. Ignored if system prompt text is set above.</div>' +
+        '</div>' +
+      '</div>';
+    container.appendChild(item);
+  });
+}
+
+function addTemplate() {
+  var templates = collectTemplates();
+  var nextShortcut = templates.length + 1;
+  if (nextShortcut > 9) nextShortcut = 9;
+  templates.push({ name: '', enabled: true, shortcut: nextShortcut, system_prompt: '' });
+  renderTemplates(templates);
+  var items = document.querySelectorAll('.template-item');
+  if (items.length > 0) items[items.length - 1].classList.add('expanded');
+}
+
+function removeTemplate(idx) {
+  var templates = collectTemplates();
+  templates.splice(idx, 1);
+  renderTemplates(templates);
+}
+
+function collectTemplates() {
+  var templates = [];
+  document.querySelectorAll('.template-item').forEach(function(item) {
+    var t = {
+      name: item.querySelector('.t-name').value,
+      enabled: item.querySelector('.t-enabled').checked,
+      shortcut: parseInt(item.querySelector('.t-shortcut').value) || 1,
+    };
+    var sp = item.querySelector('.t-system-prompt').value.trim();
+    var spp = item.querySelector('.t-system-prompt-path').value.trim();
+    if (sp) t.system_prompt = sp;
+    if (spp) t.system_prompt_path = spp;
+    templates.push(t);
+  });
+  return templates;
+}
+
+// ── HTML escaping ───────────────────────────────────────────────────
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Save config ─────────────────────────────────────────────────────
 async function save() {
   var activeTab = document.querySelector('.tab.active').dataset.tab;
 
   try {
     var res;
     if (activeTab === 'yaml') {
-      // YAML tab: send raw text
       res = await fetch('/api/config/yaml', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: document.getElementById('yaml-editor').value }),
       });
     } else {
-      // Form tab: send JSON patch, backend merges into existing config
       res = await fetch('/api/config/form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -358,7 +913,6 @@ async function save() {
 
     if (res.ok) {
       showToast('Saved! Config reloaded.', 'success');
-      // Refresh to pick up merged result
       await loadConfig();
     } else {
       var err = await res.text();
@@ -369,46 +923,89 @@ async function save() {
   }
 }
 
-// Build a JSON object matching the config.yaml structure with current form values
 function buildFormPatch() {
   var provider = document.getElementById('asr-provider').value;
+
   var patch = {
     asr: { provider: provider },
     llm: {
       enabled: document.getElementById('llm-enabled').checked,
-      active_profile: 'default',
-      profiles: {
-        'default': {
-          provider: 'openai',
-          base_url: document.getElementById('llm-base-url').value,
-          api_key: document.getElementById('llm-api-key').value,
-          model: document.getElementById('llm-model').value,
-        }
-      }
+      prompt_templates_enabled: document.getElementById('llm-prompt-templates-enabled').checked,
+      active_profile: document.getElementById('llm-active-profile').value,
+      profiles: collectProfiles(),
+      temperature: parseFloat(document.getElementById('llm-temperature').value) || 0,
+      top_p: parseFloat(document.getElementById('llm-top-p').value) || 1,
+      timeout_ms: parseInt(document.getElementById('llm-timeout').value) || 8000,
+      max_output_tokens: parseInt(document.getElementById('llm-max-output-tokens').value) || 1024,
+      dictionary_max_candidates: parseInt(document.getElementById('llm-dictionary-max-candidates').value) || 0,
+      system_prompt_path: document.getElementById('llm-system-prompt-path').value || 'system_prompt.txt',
+      user_prompt_path: document.getElementById('llm-user-prompt-path').value || 'user_prompt.txt',
     },
     hotkey: {
       trigger_key: document.getElementById('hotkey-trigger').value,
-    }
+      trigger_mode: document.getElementById('hotkey-trigger-mode').value,
+      llm_invert_modifier: document.getElementById('hotkey-llm-invert-modifier').value,
+    },
+    feedback: {
+      start_sound: document.getElementById('feedback-start-sound').checked,
+      stop_sound: document.getElementById('feedback-stop-sound').checked,
+      error_sound: document.getElementById('feedback-error-sound').checked,
+    },
+    overlay: {
+      font_family: document.getElementById('overlay-font-family').value || 'system',
+      font_size: parseInt(document.getElementById('overlay-font-size').value) || 13,
+      bottom_margin: parseInt(document.getElementById('overlay-bottom-margin').value) || 10,
+      limit_visible_lines: document.getElementById('overlay-limit-visible-lines').checked,
+      max_visible_lines: parseInt(document.getElementById('overlay-max-visible-lines').value) || 3,
+    },
+    dictionary: {
+      path: document.getElementById('dictionary-path').value || 'dictionary.txt',
+    },
+    prompt_templates: collectTemplates(),
   };
 
   // Provider-specific ASR fields
-  if (provider === 'qwen') {
-    patch.asr.qwen = {
-      api_key: document.getElementById('asr-qwen-api-key').value,
-      model: document.getElementById('asr-qwen-model').value || 'paraformer-realtime-v2',
-      language: document.getElementById('asr-qwen-language').value || 'zh',
+  if (provider === 'doubaoime') {
+    patch.asr.doubaoime = {
+      credential_path: document.getElementById('asr-doubaoime-credential-path').value || 'doubaoime_credentials.json',
+      connect_timeout_ms: parseInt(document.getElementById('asr-doubaoime-connect-timeout').value) || 3000,
+      final_wait_timeout_ms: parseInt(document.getElementById('asr-doubaoime-final-wait-timeout').value) || 5000,
     };
   } else if (provider === 'doubao') {
     patch.asr.doubao = {
       app_key: document.getElementById('asr-doubao-app-key').value,
       access_key: document.getElementById('asr-doubao-access-key').value,
+      url: document.getElementById('asr-doubao-url').value,
+      resource_id: document.getElementById('asr-doubao-resource-id').value,
+      connect_timeout_ms: parseInt(document.getElementById('asr-doubao-connect-timeout').value) || 3000,
+      final_wait_timeout_ms: parseInt(document.getElementById('asr-doubao-final-wait-timeout').value) || 5000,
+      enable_ddc: document.getElementById('asr-doubao-enable-ddc').checked,
+      enable_itn: document.getElementById('asr-doubao-enable-itn').checked,
+      enable_punc: document.getElementById('asr-doubao-enable-punc').checked,
+      enable_nonstream: document.getElementById('asr-doubao-enable-nonstream').checked,
+    };
+  } else if (provider === 'qwen') {
+    patch.asr.qwen = {
+      api_key: document.getElementById('asr-qwen-api-key').value,
+      url: document.getElementById('asr-qwen-url').value,
+      model: document.getElementById('asr-qwen-model').value || 'qwen3-asr-flash-realtime',
+      language: document.getElementById('asr-qwen-language').value || 'zh',
+      connect_timeout_ms: parseInt(document.getElementById('asr-qwen-connect-timeout').value) || 3000,
+      final_wait_timeout_ms: parseInt(document.getElementById('asr-qwen-final-wait-timeout').value) || 5000,
+    };
+  } else if (provider === 'sherpa-onnx') {
+    patch.asr['sherpa-onnx'] = {
+      model: document.getElementById('asr-sherpa-onnx-model').value || 'sherpa-onnx/bilingual-zh-en',
+      num_threads: parseInt(document.getElementById('asr-sherpa-onnx-num-threads').value) || 2,
+      hotwords_score: parseFloat(document.getElementById('asr-sherpa-onnx-hotwords-score').value) || 1.5,
+      endpoint_silence: parseFloat(document.getElementById('asr-sherpa-onnx-endpoint-silence').value) || 1.2,
     };
   }
 
   return patch;
 }
 
-// Init
+// ── Init ────────────────────────────────────────────────────────────
 loadConfig();
 </script>
 </body>
