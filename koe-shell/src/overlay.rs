@@ -1,7 +1,7 @@
 //! Floating status overlay — a compact pill at the bottom center of the screen.
 //!
-//! Design: dark rounded pill with a colored status dot on the left,
-//! status text, and interim ASR text below.
+//! Renders with Direct2D for antialiased rounded corners, animated icons,
+//! and smooth fade in/out via UpdateLayeredWindow per-pixel alpha.
 
 use std::sync::mpsc;
 use std::thread;
@@ -49,24 +49,55 @@ mod platform {
     use super::OverlayMsg;
     use std::sync::mpsc;
 
+    // ── Win32 windowing via windows-sys ──────────────────────
     use windows_sys::Win32::Foundation::*;
     use windows_sys::Win32::Graphics::Gdi::*;
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-    // Monitor APIs
+    // ── Direct2D / DirectWrite via windows crate ────────────
+    use windows::core::Interface;
+    use windows::Win32::Foundation::RECT as D2RECT;
+    use windows::Win32::Graphics::Direct2D::Common::*;
+    use windows::Win32::Graphics::Direct2D::*;
+    use windows::Win32::Graphics::DirectWrite::*;
+    use windows::Win32::Graphics::Dxgi::Common::*;
+    use windows::Win32::Graphics::Gdi::HDC as D2HDC;
+
+    // ── Monitor APIs ────────────────────────────────────────
     const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
     const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
     extern "system" {
-        fn MonitorFromWindow(hwnd: HWND, dwflags: u32) -> *mut std::ffi::c_void;
+        fn MonitorFromWindow(hwnd: isize, dwflags: u32) -> *mut std::ffi::c_void;
         fn GetMonitorInfoW(hmonitor: *mut std::ffi::c_void, lpmi: *mut MONITORINFO) -> BOOL;
         fn SetProcessDpiAwarenessContext(value: isize) -> BOOL;
-        fn GetDpiForWindow(hwnd: HWND) -> u32;
+        fn GetDpiForWindow(hwnd: isize) -> u32;
+        fn UpdateLayeredWindow(
+            hwnd: isize,
+            hdcdst: HDC,
+            pptdst: *const POINT,
+            psize: *const SIZE,
+            hdcsrc: HDC,
+            pptsrc: *const POINT,
+            crkey: u32,
+            pblend: *const BLENDFUNCTION,
+            dwflags: u32,
+        ) -> BOOL;
     }
 
-    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
     const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
+    const ULW_ALPHA: u32 = 2;
+    const AC_SRC_OVER: u8 = 0;
+    const AC_SRC_ALPHA: u8 = 1;
+
+    #[repr(C)]
+    struct BLENDFUNCTION {
+        blend_op: u8,
+        blend_flags: u8,
+        source_constant_alpha: u8,
+        alpha_format: u8,
+    }
 
     #[repr(C)]
     #[allow(non_snake_case)]
@@ -77,53 +108,129 @@ mod platform {
         dwFlags: u32,
     }
 
-    // Base dimensions at 96 DPI (100% scaling)
+    // ── Base dimensions at 96 DPI ───────────────────────────
     const BASE_DPI: f32 = 96.0;
     const BASE_PILL_WIDTH: f32 = 280.0;
     const BASE_PILL_HEIGHT_SMALL: f32 = 36.0;
     const BASE_PILL_HEIGHT_LARGE: f32 = 54.0;
     const BASE_CORNER_RADIUS: f32 = 18.0;
-    const BASE_DOT_RADIUS: f32 = 5.0;
-    const BASE_STATUS_FONT: f32 = 16.0;
-    const BASE_INTERIM_FONT: f32 = 13.0;
 
+    // Font
+    const BASE_STATUS_FONT: f32 = 15.0;
+    const BASE_INTERIM_FONT: f32 = 12.5;
+
+    // Waveform bars
+    const BAR_COUNT: usize = 5;
+    const BAR_WIDTH: f32 = 3.0;
+    const BAR_SPACING: f32 = 2.0;
+    const BAR_MIN_H: f32 = 3.0;
+    const BAR_MAX_H: f32 = 16.0;
+
+    // Processing dots
+    const DOT_COUNT: usize = 3;
+    const DOT_BASE_RADIUS: f32 = 2.5;
+    const DOT_SPACING: f32 = 8.0;
+
+    // Timing
     const TIMER_ID: usize = 1;
-    const TIMER_INTERVAL_MS: u32 = 50;
-    const BG_COLOR: u32 = 0x00302828;    // dark charcoal (BGR)
+    const TIMER_INTERVAL_MS: u32 = 33; // ~30fps
 
+    // Fade
+    const FADE_IN_STEPS: u8 = 7;  // ~230ms at 33ms/tick
+    const FADE_OUT_STEPS: u8 = 9; // ~300ms at 33ms/tick
+    const MAX_ALPHA: u8 = 230;
+
+    // Background color (RGBA)
+    const BG_R: f32 = 0.11;
+    const BG_G: f32 = 0.10;
+    const BG_B: f32 = 0.10;
+    const BG_A: f32 = 0.88;
+
+    // ── Overlay mode ────────────────────────────────────────
+    #[derive(Clone, Copy, PartialEq)]
+    enum OverlayMode {
+        None,
+        Waveform,   // recording — animated bars
+        Processing, // connecting / recognizing / thinking — bouncing dots
+        Success,    // done — animated checkmark
+        Error,      // error — X mark
+    }
+
+    // ── State ───────────────────────────────────────────────
     struct OverlayState {
         status_text: String,
         interim_text: String,
-        dot_color: u32,
+        accent_color: D2D1_COLOR_F,
+        mode: OverlayMode,
         visible: bool,
-        hwnd: HWND,
+        hwnd: isize,
         dismiss_at: Option<std::time::Instant>,
+
+        // D2D resources
+        d2d_factory: ID2D1Factory,
+        dc_target: ID2D1DCRenderTarget,
+        dwrite_factory: IDWriteFactory,
+
+        // Animation
+        tick: u32,
+        alpha: u8,
+        target_alpha: u8,
+
+        // Current geometry (physical pixels)
+        pill_x: i32,
+        pill_y: i32,
+        pill_w: i32,
+        pill_h: i32,
+        dpi_scale: f32,
     }
 
     /// Single-thread cell usable as a `static`. Only accessed from the overlay thread.
     struct ThreadLocal<T>(std::cell::UnsafeCell<T>);
     unsafe impl<T> Sync for ThreadLocal<T> {}
     impl<T> ThreadLocal<T> {
-        const fn new(val: T) -> Self { Self(std::cell::UnsafeCell::new(val)) }
-        /// # Safety: must only be called from the overlay thread.
-        unsafe fn get(&self) -> &mut T { &mut *self.0.get() }
+        const fn new(val: T) -> Self {
+            Self(std::cell::UnsafeCell::new(val))
+        }
+        unsafe fn get(&self) -> &mut T {
+            &mut *self.0.get()
+        }
     }
 
     static STATE: ThreadLocal<Option<OverlayState>> = ThreadLocal::new(None);
     static RX: ThreadLocal<Option<mpsc::Receiver<OverlayMsg>>> = ThreadLocal::new(None);
 
-    /// Returns (status_text, dot_color_bgr).
-    fn status_for_state(state: &str) -> (&str, u32) {
+    // ── Status mapping ──────────────────────────────────────
+    fn status_for_state(state: &str) -> (&str, OverlayMode, D2D1_COLOR_F) {
+        let color = |r: f32, g: f32, b: f32| D2D1_COLOR_F {
+            r,
+            g,
+            b,
+            a: 1.0,
+        };
         match state {
-            s if s.starts_with("recording") => ("Listening...", 0x004040FF),     // red dot
-            "connecting_asr" => ("Connecting...", 0x0040CCFF),                    // orange dot
-            "finalizing_asr" => ("Recognizing...", 0x00FFCC40),                   // blue dot
-            "correcting" => ("Thinking...", 0x00FF9060),                          // purple dot
-            s if s.starts_with("preparing_paste") || s == "pasting" => {
-                ("Done!", 0x0060DD60)                                             // green dot
+            s if s.starts_with("recording") => {
+                ("Listening...", OverlayMode::Waveform, color(1.0, 0.25, 0.25))
             }
-            "failed" | "error" => ("Error", 0x004040FF),                          // red dot
-            _ => ("", 0x00808080),
+            "connecting_asr" => (
+                "Connecting...",
+                OverlayMode::Processing,
+                color(1.0, 0.8, 0.25),
+            ),
+            "finalizing_asr" => (
+                "Recognizing...",
+                OverlayMode::Processing,
+                color(0.25, 0.8, 1.0),
+            ),
+            "correcting" => (
+                "Thinking...",
+                OverlayMode::Processing,
+                color(0.38, 0.56, 1.0),
+            ),
+            s if s.starts_with("preparing_paste") || s == "pasting" => {
+                ("Done!", OverlayMode::Success, color(0.38, 0.87, 0.38))
+            }
+            "failed" | "error" => ("Error", OverlayMode::Error, color(1.0, 0.25, 0.25)),
+            _ => ("", OverlayMode::None, color(0.5, 0.5, 0.5)),
         }
     }
 
@@ -131,23 +238,610 @@ mod platform {
         s.encode_utf16().chain(Some(0)).collect()
     }
 
-    /// Get DPI scale factor for the overlay window. Returns 1.0 at 96 DPI, 1.5 at 144, 2.0 at 192, etc.
-    unsafe fn dpi_scale(hwnd: HWND) -> f32 {
+    unsafe fn get_dpi_scale(hwnd: isize) -> f32 {
         let dpi = GetDpiForWindow(hwnd);
-        if dpi == 0 { 1.0 } else { dpi as f32 / BASE_DPI }
+        if dpi == 0 {
+            1.0
+        } else {
+            dpi as f32 / BASE_DPI
+        }
     }
 
-    /// Scale a base dimension by DPI.
-    fn scaled(base: f32, scale: f32) -> i32 {
+    fn s(base: f32, scale: f32) -> f32 {
+        base * scale
+    }
+
+    fn si(base: f32, scale: f32) -> i32 {
         (base * scale).round() as i32
     }
 
+    // ── D2D initialization ──────────────────────────────────
+    fn init_d2d() -> windows::core::Result<(ID2D1Factory, ID2D1DCRenderTarget, IDWriteFactory)> {
+        unsafe {
+            let d2d_factory: ID2D1Factory =
+                D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
+
+            let props = D2D1_RENDER_TARGET_PROPERTIES {
+                r#type: D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                pixelFormat: D2D1_PIXEL_FORMAT {
+                    format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                    alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                },
+                dpiX: 0.0,
+                dpiY: 0.0,
+                usage: D2D1_RENDER_TARGET_USAGE_NONE,
+                minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
+            };
+            let dc_target = d2d_factory.CreateDCRenderTarget(&props)?;
+
+            let dwrite_factory: IDWriteFactory =
+                DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
+
+            Ok((d2d_factory, dc_target, dwrite_factory))
+        }
+    }
+
+    // ── Rendering ───────────────────────────────────────────
+    unsafe fn render(state: &mut OverlayState) {
+        if state.alpha == 0 {
+            return;
+        }
+
+        let w = state.pill_w;
+        let h = state.pill_h;
+        if w <= 0 || h <= 0 {
+            return;
+        }
+
+        // Create memory DC + 32-bit ARGB bitmap
+        let screen_dc = GetDC(0);
+        let mem_dc = CreateCompatibleDC(screen_dc);
+
+        let mut bmi: BITMAPINFO = std::mem::zeroed();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = w;
+        bmi.bmiHeader.biHeight = -h; // top-down
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+        let hbitmap = CreateDIBSection(
+            mem_dc,
+            &bmi,
+            DIB_RGB_COLORS,
+            &mut bits,
+            std::ptr::null_mut(),
+            0,
+        );
+        if hbitmap == 0 {
+            DeleteDC(mem_dc);
+            ReleaseDC(0, screen_dc);
+            return;
+        }
+        let old_bmp = SelectObject(mem_dc, hbitmap);
+
+        // Bind D2D DC target to memory DC
+        let bind_rect = D2RECT {
+            left: 0,
+            top: 0,
+            right: w,
+            bottom: h,
+        };
+        if state
+            .dc_target
+            .BindDC(D2HDC(mem_dc as *mut _), &bind_rect)
+            .is_err()
+        {
+            SelectObject(mem_dc, old_bmp);
+            DeleteObject(hbitmap);
+            DeleteDC(mem_dc);
+            ReleaseDC(0, screen_dc);
+            return;
+        }
+
+        let target = &state.dc_target;
+        let sc = state.dpi_scale;
+
+        target.BeginDraw();
+        target.Clear(Some(&D2D1_COLOR_F {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        }));
+
+        // ── Shadow (subtle dark glow behind the pill) ──
+        let shadow_expand = s(3.0, sc);
+        let shadow_radius = s(BASE_CORNER_RADIUS, sc) + shadow_expand;
+        let shadow_rect = D2D1_ROUNDED_RECT {
+            rect: D2D_RECT_F {
+                left: -shadow_expand,
+                top: -shadow_expand,
+                right: w as f32 + shadow_expand,
+                bottom: h as f32 + shadow_expand,
+            },
+            radiusX: shadow_radius,
+            radiusY: shadow_radius,
+        };
+        if let Ok(shadow_brush) = target.CreateSolidColorBrush(
+            &D2D1_COLOR_F {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.18,
+            },
+            None,
+        ) {
+            target.FillRoundedRectangle(&shadow_rect, &shadow_brush);
+        }
+
+        // ── Background rounded pill ──
+        let corner = s(BASE_CORNER_RADIUS, sc);
+        let bg_rect = D2D1_ROUNDED_RECT {
+            rect: D2D_RECT_F {
+                left: 0.0,
+                top: 0.0,
+                right: w as f32,
+                bottom: h as f32,
+            },
+            radiusX: corner,
+            radiusY: corner,
+        };
+        if let Ok(bg_brush) = target.CreateSolidColorBrush(
+            &D2D1_COLOR_F {
+                r: BG_R,
+                g: BG_G,
+                b: BG_B,
+                a: BG_A,
+            },
+            None,
+        ) {
+            target.FillRoundedRectangle(&bg_rect, &bg_brush);
+        }
+
+        // ── Subtle border ──
+        if let Ok(border_brush) = target.CreateSolidColorBrush(
+            &D2D1_COLOR_F {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.08,
+            },
+            None,
+        ) {
+            let inset = 0.5;
+            let border_rect = D2D1_ROUNDED_RECT {
+                rect: D2D_RECT_F {
+                    left: inset,
+                    top: inset,
+                    right: w as f32 - inset,
+                    bottom: h as f32 - inset,
+                },
+                radiusX: corner - inset,
+                radiusY: corner - inset,
+            };
+            target.DrawRoundedRectangle(&border_rect, &border_brush, 1.0, None);
+        }
+
+        // ── Icon area ──
+        let icon_cx = s(20.0, sc);
+        let icon_cy = if state.interim_text.is_empty() {
+            h as f32 / 2.0
+        } else {
+            s(18.0, sc)
+        };
+
+        draw_icon(target, state, icon_cx, icon_cy, sc);
+
+        // ── Text ──
+        draw_text(target, state, w, h, sc);
+
+        let _ = target.EndDraw(None, None);
+
+        // ── UpdateLayeredWindow ──
+        let dst_point = POINT {
+            x: state.pill_x,
+            y: state.pill_y,
+        };
+        let src_point = POINT { x: 0, y: 0 };
+        let win_size = SIZE { cx: w, cy: h };
+        let blend = BLENDFUNCTION {
+            blend_op: AC_SRC_OVER,
+            blend_flags: 0,
+            source_constant_alpha: state.alpha,
+            alpha_format: AC_SRC_ALPHA,
+        };
+
+        UpdateLayeredWindow(
+            state.hwnd,
+            screen_dc,
+            &dst_point,
+            &win_size,
+            mem_dc,
+            &src_point,
+            0,
+            &blend,
+            ULW_ALPHA,
+        );
+
+        // Cleanup
+        SelectObject(mem_dc, old_bmp);
+        DeleteObject(hbitmap);
+        DeleteDC(mem_dc);
+        ReleaseDC(0, screen_dc);
+    }
+
+    // ── Icon drawing ────────────────────────────────────────
+    unsafe fn draw_icon(
+        target: &ID2D1DCRenderTarget,
+        state: &OverlayState,
+        cx: f32,
+        cy: f32,
+        sc: f32,
+    ) {
+        match state.mode {
+            OverlayMode::Waveform => draw_waveform(target, &state.accent_color, state.tick, cx, cy, sc),
+            OverlayMode::Processing => draw_dots(target, &state.accent_color, state.tick, cx, cy, sc),
+            OverlayMode::Success => draw_checkmark(target, &state.accent_color, state.tick, cx, cy, sc),
+            OverlayMode::Error => draw_cross(target, &state.accent_color, cx, cy, sc),
+            OverlayMode::None => {}
+        }
+    }
+
+    unsafe fn draw_waveform(
+        target: &ID2D1DCRenderTarget,
+        color: &D2D1_COLOR_F,
+        tick: u32,
+        cx: f32,
+        cy: f32,
+        sc: f32,
+    ) {
+        let bar_w = s(BAR_WIDTH, sc);
+        let total_w = BAR_COUNT as f32 * bar_w + (BAR_COUNT as f32 - 1.0) * s(BAR_SPACING, sc);
+        let start_x = cx - total_w / 2.0;
+
+        for i in 0..BAR_COUNT {
+            let phase = tick as f64 * 0.12 + i as f64 * 1.1;
+            let t = (0.5 + 0.5 * phase.sin()) as f32;
+            let h = s(BAR_MIN_H + t * (BAR_MAX_H - BAR_MIN_H), sc);
+            let alpha = 0.55 + 0.45 * t;
+
+            let bar_color = D2D1_COLOR_F {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+                a: alpha,
+            };
+            if let Ok(brush) = target.CreateSolidColorBrush(&bar_color, None) {
+                let x = start_x + i as f32 * (bar_w + s(BAR_SPACING, sc));
+                let y = cy - h / 2.0;
+                let rounded = D2D1_ROUNDED_RECT {
+                    rect: D2D_RECT_F {
+                        left: x,
+                        top: y,
+                        right: x + bar_w,
+                        bottom: y + h,
+                    },
+                    radiusX: bar_w / 2.0,
+                    radiusY: bar_w / 2.0,
+                };
+                target.FillRoundedRectangle(&rounded, &brush);
+            }
+        }
+    }
+
+    unsafe fn draw_dots(
+        target: &ID2D1DCRenderTarget,
+        color: &D2D1_COLOR_F,
+        tick: u32,
+        cx: f32,
+        cy: f32,
+        sc: f32,
+    ) {
+        let total_w = (DOT_COUNT as f32 - 1.0) * s(DOT_SPACING, sc);
+        let start_x = cx - total_w / 2.0;
+
+        for i in 0..DOT_COUNT {
+            let phase = tick as f64 * 0.15 - i as f64 * 0.9;
+            let bounce = phase.sin().max(0.0) as f32;
+            let r = s(DOT_BASE_RADIUS + bounce * 1.5, sc);
+            let alpha = 0.35 + 0.65 * bounce;
+            let offset_y = bounce * s(3.0, sc);
+
+            let dot_color = D2D1_COLOR_F {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+                a: alpha,
+            };
+            if let Ok(brush) = target.CreateSolidColorBrush(&dot_color, None) {
+                let x = start_x + i as f32 * s(DOT_SPACING, sc);
+                let ellipse = D2D1_ELLIPSE {
+                    point: D2D_POINT_2F {
+                        x,
+                        y: cy - offset_y,
+                    },
+                    radiusX: r,
+                    radiusY: r,
+                };
+                target.FillEllipse(&ellipse, &brush);
+            }
+        }
+    }
+
+    unsafe fn draw_checkmark(
+        target: &ID2D1DCRenderTarget,
+        color: &D2D1_COLOR_F,
+        tick: u32,
+        cx: f32,
+        cy: f32,
+        sc: f32,
+    ) {
+        let progress = (tick as f32 / 12.0).min(1.0);
+
+        let p0 = D2D_POINT_2F {
+            x: cx - s(6.0, sc),
+            y: cy + s(1.0, sc),
+        };
+        let p1 = D2D_POINT_2F {
+            x: cx - s(1.5, sc),
+            y: cy - s(4.0, sc),
+        };
+        let p2 = D2D_POINT_2F {
+            x: cx + s(7.0, sc),
+            y: cy + s(5.0, sc),
+        };
+
+        let stroke_color = D2D1_COLOR_F {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+            a: 0.95,
+        };
+        if let Ok(brush) = target.CreateSolidColorBrush(&stroke_color, None) {
+            let stroke_w = s(2.0, sc);
+
+            let factory = &target
+                .GetFactory()
+                .expect("D2D factory");
+
+            if progress <= 0.4 {
+                let t = progress / 0.4;
+                let end = D2D_POINT_2F {
+                    x: p0.x + (p1.x - p0.x) * t,
+                    y: p0.y + (p1.y - p0.y) * t,
+                };
+                if let Ok(geom) = factory.CreatePathGeometry() {
+                    if let Ok(sink) = geom.Open() {
+                        sink.BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
+                        sink.AddLine(end);
+                        sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                        let _ = sink.Close();
+                        let style = create_round_stroke_style(&factory);
+                        target.DrawGeometry(&geom, &brush, stroke_w, style.as_ref());
+                    }
+                }
+            } else {
+                let t = (progress - 0.4) / 0.6;
+                let end = D2D_POINT_2F {
+                    x: p1.x + (p2.x - p1.x) * t,
+                    y: p1.y + (p2.y - p1.y) * t,
+                };
+                if let Ok(geom) = factory.CreatePathGeometry() {
+                    if let Ok(sink) = geom.Open() {
+                        sink.BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
+                        sink.AddLine(p1);
+                        sink.AddLine(end);
+                        sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                        let _ = sink.Close();
+                        let style = create_round_stroke_style(&factory);
+                        target.DrawGeometry(&geom, &brush, stroke_w, style.as_ref());
+                    }
+                }
+            }
+        }
+    }
+
+    unsafe fn draw_cross(
+        target: &ID2D1DCRenderTarget,
+        color: &D2D1_COLOR_F,
+        cx: f32,
+        cy: f32,
+        sc: f32,
+    ) {
+        let arm = s(5.0, sc);
+        let stroke_color = D2D1_COLOR_F {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+            a: 0.95,
+        };
+        if let Ok(brush) = target.CreateSolidColorBrush(&stroke_color, None) {
+            let stroke_w = s(2.0, sc);
+            let factory = target.GetFactory().expect("D2D factory");
+            let style = create_round_stroke_style(&factory);
+
+            target.DrawLine(
+                D2D_POINT_2F {
+                    x: cx - arm,
+                    y: cy - arm,
+                },
+                D2D_POINT_2F {
+                    x: cx + arm,
+                    y: cy + arm,
+                },
+                &brush,
+                stroke_w,
+                style.as_ref(),
+            );
+            target.DrawLine(
+                D2D_POINT_2F {
+                    x: cx + arm,
+                    y: cy - arm,
+                },
+                D2D_POINT_2F {
+                    x: cx - arm,
+                    y: cy + arm,
+                },
+                &brush,
+                stroke_w,
+                style.as_ref(),
+            );
+        }
+    }
+
+    unsafe fn create_round_stroke_style(factory: &ID2D1Factory) -> Option<ID2D1StrokeStyle> {
+        let props = D2D1_STROKE_STYLE_PROPERTIES {
+            startCap: D2D1_CAP_STYLE_ROUND,
+            endCap: D2D1_CAP_STYLE_ROUND,
+            dashCap: D2D1_CAP_STYLE_ROUND,
+            lineJoin: D2D1_LINE_JOIN_ROUND,
+            miterLimit: 1.0,
+            dashStyle: D2D1_DASH_STYLE_SOLID,
+            dashOffset: 0.0,
+        };
+        factory.CreateStrokeStyle(&props, None).ok()
+    }
+
+    // ── Text drawing ────────────────────────────────────────
+    unsafe fn draw_text(
+        target: &ID2D1DCRenderTarget,
+        state: &OverlayState,
+        w: i32,
+        h: i32,
+        sc: f32,
+    ) {
+        let text_left = s(36.0, sc);
+        let pad_right = s(14.0, sc);
+
+        // Status text
+        let font_name = to_wide("Segoe UI");
+        if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
+            windows::core::PCWSTR(font_name.as_ptr()),
+            None,
+            DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            s(BASE_STATUS_FONT, sc),
+            windows::core::PCWSTR(to_wide("en-us").as_ptr()),
+        ) {
+            let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+            let text_color = D2D1_COLOR_F {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.92,
+            };
+            if let Ok(brush) = target.CreateSolidColorBrush(&text_color, None) {
+                let status_wide = to_wide(&state.status_text);
+                let top = if state.interim_text.is_empty() {
+                    0.0
+                } else {
+                    s(4.0, sc)
+                };
+                let bottom = if state.interim_text.is_empty() {
+                    h as f32
+                } else {
+                    s(24.0, sc)
+                };
+                let rect = D2D_RECT_F {
+                    left: text_left,
+                    top,
+                    right: w as f32 - pad_right,
+                    bottom,
+                };
+                // SetParagraphAlignment for vertical centering
+                let _ = fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                target.DrawText(
+                    &status_wide[..status_wide.len() - 1], // exclude null terminator
+                    &fmt,
+                    &rect,
+                    &brush,
+                    D2D1_DRAW_TEXT_OPTIONS_CLIP | D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
+                    DWRITE_MEASURING_MODE_NATURAL,
+                );
+            }
+        }
+
+        // Interim text
+        if !state.interim_text.is_empty() {
+            if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
+                windows::core::PCWSTR(font_name.as_ptr()),
+                None,
+                DWRITE_FONT_WEIGHT_REGULAR,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                s(BASE_INTERIM_FONT, sc),
+                windows::core::PCWSTR(to_wide("en-us").as_ptr()),
+            ) {
+                let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                let _ = fmt.SetTrimming(
+                    &DWRITE_TRIMMING {
+                        granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                        delimiter: 0,
+                        delimiterCount: 0,
+                    },
+                    None,
+                );
+
+                let text_color = D2D1_COLOR_F {
+                    r: 0.69,
+                    g: 0.69,
+                    b: 0.69,
+                    a: 1.0,
+                };
+                if let Ok(brush) = target.CreateSolidColorBrush(&text_color, None) {
+                    // Show last ~40 chars for long text
+                    let display_text = if state.interim_text.chars().count() > 40 {
+                        let start = state
+                            .interim_text
+                            .char_indices()
+                            .rev()
+                            .nth(39)
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        format!("…{}", &state.interim_text[start..])
+                    } else {
+                        state.interim_text.clone()
+                    };
+
+                    let interim_wide = to_wide(&display_text);
+                    let rect = D2D_RECT_F {
+                        left: text_left,
+                        top: s(28.0, sc),
+                        right: w as f32 - pad_right,
+                        bottom: h as f32 - s(4.0, sc),
+                    };
+                    target.DrawText(
+                        &interim_wide[..interim_wide.len() - 1],
+                        &fmt,
+                        &rect,
+                        &brush,
+                        D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                        DWRITE_MEASURING_MODE_NATURAL,
+                    );
+                }
+            }
+        }
+    }
+
+    // ── Window management ───────────────────────────────────
     pub fn run_overlay(rx: mpsc::Receiver<OverlayMsg>) {
         unsafe {
-            // Declare per-monitor DPI awareness so we get real pixel sizes
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
             *RX.get() = Some(rx);
+
+            // Initialize D2D
+            let (d2d_factory, dc_target, dwrite_factory) = match init_d2d() {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("overlay: D2D init failed: {e}");
+                    return;
+                }
+            };
 
             let class_name = to_wide("KoeOverlay");
             let hinstance = GetModuleHandleW(std::ptr::null());
@@ -168,38 +862,48 @@ mod platform {
             };
             RegisterClassExW(&wc);
 
-            // Initial position (will be updated when shown)
-            let x = 0;
-            let y = 0;
-
             let window_name = to_wide("Koe");
             let hwnd = CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
                 class_name.as_ptr(),
                 window_name.as_ptr(),
                 WS_POPUP,
-                x, y,
-                BASE_PILL_WIDTH as i32, BASE_PILL_HEIGHT_SMALL as i32,
+                0,
+                0,
+                1,
+                1,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 hinstance,
                 std::ptr::null(),
             );
 
-            // Semi-transparent
-            SetLayeredWindowAttributes(hwnd, 0, 230, LWA_ALPHA);
-
-            // Rounded corners
-            let rgn = CreateRoundRectRgn(0, 0, BASE_PILL_WIDTH as i32, BASE_PILL_HEIGHT_SMALL as i32, BASE_CORNER_RADIUS as i32, BASE_CORNER_RADIUS as i32);
-            SetWindowRgn(hwnd, rgn, 1);
+            let dpi = get_dpi_scale(hwnd);
 
             *STATE.get() = Some(OverlayState {
                 status_text: String::new(),
                 interim_text: String::new(),
-                dot_color: 0x00808080,
+                accent_color: D2D1_COLOR_F {
+                    r: 0.5,
+                    g: 0.5,
+                    b: 0.5,
+                    a: 1.0,
+                },
+                mode: OverlayMode::None,
                 visible: false,
                 hwnd,
                 dismiss_at: None,
+                d2d_factory,
+                dc_target,
+                dwrite_factory,
+                tick: 0,
+                alpha: 0,
+                target_alpha: 0,
+                pill_x: 0,
+                pill_y: 0,
+                pill_w: si(BASE_PILL_WIDTH, dpi),
+                pill_h: si(BASE_PILL_HEIGHT_SMALL, dpi),
+                dpi_scale: dpi,
             });
 
             SetTimer(hwnd, TIMER_ID, TIMER_INTERVAL_MS, None);
@@ -213,12 +917,20 @@ mod platform {
     }
 
     unsafe extern "system" fn wnd_proc(
-        hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM,
-    ) -> LRESULT {
+        hwnd: isize,
+        msg: u32,
+        wparam: usize,
+        lparam: isize,
+    ) -> isize {
         match msg {
-            WM_TIMER if wparam == TIMER_ID => { poll_messages(); 0 }
-            WM_PAINT => { paint(hwnd); 0 }
-            WM_DESTROY => { PostQuitMessage(0); 0 }
+            WM_TIMER if wparam == TIMER_ID => {
+                poll_messages();
+                0
+            }
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                0
+            }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }
@@ -229,75 +941,111 @@ mod platform {
             None => return,
         };
 
-        let mut needs_repaint = false;
+        let mut needs_render = false;
 
         while let Ok(msg) = rx.try_recv() {
             let state = STATE.get().as_mut().unwrap();
             match msg {
-                OverlayMsg::UpdateState(s) => {
-                    let (text, color) = status_for_state(&s);
+                OverlayMsg::UpdateState(s_str) => {
+                    let (text, mode, color) = status_for_state(&s_str);
 
-                    if s == "idle" || s == "completed" {
-                        if !state.visible { continue; }
+                    if s_str == "idle" || s_str == "completed" {
+                        if !state.visible {
+                            continue;
+                        }
                         state.dismiss_at = Some(
                             std::time::Instant::now() + std::time::Duration::from_millis(600),
                         );
-                    } else if s.starts_with("preparing_paste") || s == "pasting" {
+                    } else if s_str.starts_with("preparing_paste") || s_str == "pasting" {
                         state.dismiss_at = Some(
                             std::time::Instant::now() + std::time::Duration::from_millis(800),
                         );
                         state.status_text = text.to_string();
-                        state.dot_color = color;
+                        state.accent_color = color;
+                        state.mode = mode;
+                        state.tick = 0;
                         state.interim_text.clear();
-                        resize_pill(state);
+                        reposition_pill(state);
                         show_window(state);
                     } else {
                         state.dismiss_at = None;
                         state.status_text = text.to_string();
-                        state.dot_color = color;
+                        state.accent_color = color;
+                        state.mode = mode;
+                        if mode == OverlayMode::Waveform {
+                            // New recording: reset tick for fresh animation
+                        }
                         if !text.is_empty() {
-                            resize_pill(state);
+                            reposition_pill(state);
                             show_window(state);
                         }
                     }
-                    needs_repaint = true;
+                    needs_render = true;
                 }
                 OverlayMsg::UpdateInterimText(text) => {
+                    let state = STATE.get().as_mut().unwrap();
                     let had_interim = !state.interim_text.is_empty();
                     state.interim_text = text;
                     let has_interim = !state.interim_text.is_empty();
                     if had_interim != has_interim {
-                        resize_pill(state);
+                        reposition_pill(state);
                     }
-                    needs_repaint = true;
+                    needs_render = true;
                 }
                 OverlayMsg::Dismiss => {
-                    hide_window(state);
-                    needs_repaint = false;
+                    hide_window(STATE.get().as_mut().unwrap());
+                    needs_render = false;
                 }
             }
         }
 
         let state = STATE.get().as_mut().unwrap();
+
+        // Check dismiss timer
         if let Some(dismiss_at) = state.dismiss_at {
             if std::time::Instant::now() >= dismiss_at {
                 state.dismiss_at = None;
                 state.interim_text.clear();
                 hide_window(state);
-                return;
+                needs_render = true;
             }
         }
 
-        if needs_repaint {
-            InvalidateRect(state.hwnd, std::ptr::null(), 1);
+        // Advance animation tick
+        if state.visible || state.alpha > 0 {
+            state.tick = state.tick.wrapping_add(1);
+            needs_render = true;
+        }
+
+        // Fade animation
+        if state.alpha != state.target_alpha {
+            if state.alpha < state.target_alpha {
+                let step = MAX_ALPHA / FADE_IN_STEPS;
+                state.alpha = state.alpha.saturating_add(step).min(state.target_alpha);
+            } else {
+                let step = MAX_ALPHA / FADE_OUT_STEPS;
+                state.alpha = state.alpha.saturating_sub(step).max(state.target_alpha);
+            }
+            needs_render = true;
+
+            // When fully faded out, actually hide the window
+            if state.alpha == 0 && state.target_alpha == 0 {
+                ShowWindow(state.hwnd, SW_HIDE);
+                state.visible = false;
+                state.status_text.clear();
+                state.interim_text.clear();
+            }
+        }
+
+        if needs_render {
+            render(state);
         }
     }
 
-    /// Get the working area of the monitor where the foreground window is.
     unsafe fn active_monitor_rect() -> RECT {
         let fg = GetForegroundWindow();
-        let monitor = if fg.is_null() {
-            MonitorFromWindow(std::ptr::null_mut(), MONITOR_DEFAULTTOPRIMARY)
+        let monitor = if fg == 0 {
+            MonitorFromWindow(0, MONITOR_DEFAULTTOPRIMARY)
         } else {
             MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)
         };
@@ -305,41 +1053,48 @@ mod platform {
         let mut info: MONITORINFO = std::mem::zeroed();
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         if GetMonitorInfoW(monitor, &mut info) != 0 {
-            info.rcWork // working area (excludes taskbar)
+            info.rcWork
         } else {
-            // Fallback to primary screen
             RECT {
-                left: 0, top: 0,
+                left: 0,
+                top: 0,
                 right: GetSystemMetrics(SM_CXSCREEN),
                 bottom: GetSystemMetrics(SM_CYSCREEN),
             }
         }
     }
 
-    /// Resize and reposition the pill on the active monitor, DPI-aware.
-    unsafe fn resize_pill(state: &OverlayState) {
-        let s = dpi_scale(state.hwnd);
-        let w = scaled(BASE_PILL_WIDTH, s);
+    unsafe fn reposition_pill(state: &mut OverlayState) {
+        state.dpi_scale = get_dpi_scale(state.hwnd);
+        let sc = state.dpi_scale;
+
+        let w = si(BASE_PILL_WIDTH, sc);
         let h = if state.interim_text.is_empty() {
-            scaled(BASE_PILL_HEIGHT_SMALL, s)
+            si(BASE_PILL_HEIGHT_SMALL, sc)
         } else {
-            scaled(BASE_PILL_HEIGHT_LARGE, s)
+            si(BASE_PILL_HEIGHT_LARGE, sc)
         };
-        let corner = scaled(BASE_CORNER_RADIUS, s);
 
         let mon = active_monitor_rect();
         let mon_w = mon.right - mon.left;
         let x = mon.left + (mon_w - w) / 2;
-        let y = mon.bottom - h - scaled(40.0, s);
+        let y = mon.bottom - h - si(40.0, sc);
 
+        state.pill_x = x;
+        state.pill_y = y;
+        state.pill_w = w;
+        state.pill_h = h;
+
+        // Move window to cover the area (slightly larger for shadow)
         SetWindowPos(
-            state.hwnd, HWND_TOPMOST,
-            x, y, w, h,
+            state.hwnd,
+            HWND_TOPMOST,
+            x,
+            y,
+            w,
+            h,
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         );
-
-        let rgn = CreateRoundRectRgn(0, 0, w, h, corner, corner);
-        SetWindowRgn(state.hwnd, rgn, 1);
     }
 
     unsafe fn show_window(state: &mut OverlayState) {
@@ -347,121 +1102,12 @@ mod platform {
             ShowWindow(state.hwnd, SW_SHOWNOACTIVATE);
             state.visible = true;
         }
+        state.target_alpha = MAX_ALPHA;
     }
 
     unsafe fn hide_window(state: &mut OverlayState) {
-        if state.visible {
-            ShowWindow(state.hwnd, SW_HIDE);
-            state.visible = false;
-            state.status_text.clear();
-            state.interim_text.clear();
-        }
-    }
-
-    unsafe fn paint(hwnd: HWND) {
-        let mut ps: PAINTSTRUCT = std::mem::zeroed();
-        let hdc = BeginPaint(hwnd, &mut ps);
-
-        let state = match STATE.get().as_ref() {
-            Some(s) => s,
-            None => { EndPaint(hwnd, &ps); return; }
-        };
-
-        let s = dpi_scale(hwnd);
-
-        let mut rect: RECT = std::mem::zeroed();
-        GetClientRect(hwnd, &mut rect);
-
-        // Dark background
-        let bg_brush = CreateSolidBrush(BG_COLOR);
-        FillRect(hdc, &rect, bg_brush);
-        DeleteObject(bg_brush);
-
-        // Status dot
-        let dot_r = scaled(BASE_DOT_RADIUS, s);
-        let dot_brush = CreateSolidBrush(state.dot_color);
-        let old_brush = SelectObject(hdc, dot_brush);
-        let null_pen = GetStockObject(NULL_PEN);
-        let old_pen = SelectObject(hdc, null_pen);
-        let dot_cx = scaled(18.0, s);
-        let dot_cy = if state.interim_text.is_empty() {
-            rect.bottom / 2
-        } else {
-            scaled(14.0, s)
-        };
-        Ellipse(hdc, dot_cx - dot_r, dot_cy - dot_r, dot_cx + dot_r, dot_cy + dot_r);
-        SelectObject(hdc, old_pen);
-        SelectObject(hdc, old_brush);
-        DeleteObject(dot_brush);
-
-        // Text setup
-        SetTextColor(hdc, 0x00FFFFFF);
-        SetBkMode(hdc, TRANSPARENT as i32);
-
-        let font_name = to_wide("Segoe UI");
-        let text_left = scaled(30.0, s);
-        let pad_right = scaled(12.0, s);
-
-        // Status text
-        let font = CreateFontW(
-            scaled(BASE_STATUS_FONT, s), 0, 0, 0,
-            600, 0, 0, 0,
-            DEFAULT_CHARSET as u32,
-            OUT_DEFAULT_PRECIS as u32,
-            CLIP_DEFAULT_PRECIS as u32,
-            CLEARTYPE_QUALITY as u32,
-            (DEFAULT_PITCH | FF_SWISS) as u32,
-            font_name.as_ptr(),
-        );
-        let old_font = SelectObject(hdc, font);
-
-        let mut status_buf = to_wide(&state.status_text);
-        let mut status_rect = RECT {
-            left: text_left,
-            top: if state.interim_text.is_empty() { 0 } else { scaled(4.0, s) },
-            right: rect.right - pad_right,
-            bottom: if state.interim_text.is_empty() { rect.bottom } else { scaled(24.0, s) },
-        };
-        DrawTextW(hdc, status_buf.as_mut_ptr(), status_buf.len() as i32 - 1, &mut status_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-
-        // Interim text
-        if !state.interim_text.is_empty() {
-            let small_font = CreateFontW(
-                scaled(BASE_INTERIM_FONT, s), 0, 0, 0,
-                400, 0, 0, 0,
-                DEFAULT_CHARSET as u32,
-                OUT_DEFAULT_PRECIS as u32,
-                CLIP_DEFAULT_PRECIS as u32,
-                CLEARTYPE_QUALITY as u32,
-                (DEFAULT_PITCH | FF_SWISS) as u32,
-                font_name.as_ptr(),
-            );
-            SelectObject(hdc, small_font);
-
-            let display_text = if state.interim_text.chars().count() > 40 {
-                let start = state.interim_text.char_indices()
-                    .rev().nth(39).map(|(i, _)| i).unwrap_or(0);
-                format!("…{}", &state.interim_text[start..])
-            } else {
-                state.interim_text.clone()
-            };
-
-            let mut interim_buf = to_wide(&display_text);
-            let mut interim_rect = RECT {
-                left: text_left,
-                top: scaled(28.0, s),
-                right: rect.right - pad_right,
-                bottom: rect.bottom - scaled(4.0, s),
-            };
-            SetTextColor(hdc, 0x00B0B0B0);
-            DrawTextW(hdc, interim_buf.as_mut_ptr(), interim_buf.len() as i32 - 1, &mut interim_rect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
-
-            DeleteObject(small_font);
-        }
-
-        SelectObject(hdc, old_font);
-        DeleteObject(font);
-        EndPaint(hwnd, &ps);
+        // Start fade out; actual SW_HIDE happens when alpha reaches 0
+        state.target_alpha = 0;
     }
 }
 
