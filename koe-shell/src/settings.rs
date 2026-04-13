@@ -243,6 +243,7 @@ async fn test_llm(
         api_key: req.api_key,
         model: req.model,
         max_token_parameter,
+        chat_completions_path: "/chat/completions".into(),
         no_reasoning_control,
         mlx: Default::default(),
     };

@@ -470,17 +470,6 @@
           </select>
         </div>
       </div>
-      <div class="field">
-        <label>LLM Invert Modifier</label>
-        <select id="hotkey-llm-invert-modifier">
-          <option value="control">Control</option>
-          <option value="option">Option / Alt</option>
-          <option value="command">Command / Win</option>
-          <option value="shift">Shift</option>
-          <option value="none">None (disabled)</option>
-        </select>
-        <div class="hint">Hold this modifier while pressing the trigger key to invert LLM correction (skip if enabled, use if disabled)</div>
-      </div>
     </div>
   </div>
 
@@ -734,8 +723,6 @@ function populateForm(cfg) {
   // ── Hotkey ──
   setSelect('hotkey-trigger', dig(cfg, 'hotkey', 'trigger_key'), 'right_alt');
   setSelect('hotkey-trigger-mode', dig(cfg, 'hotkey', 'trigger_mode'), 'hold');
-  setSelect('hotkey-llm-invert-modifier', dig(cfg, 'hotkey', 'llm_invert_modifier'), 'control');
-
   // ── Feedback ──
   setBool('feedback-start-sound', dig(cfg, 'feedback', 'start_sound'), false);
   setBool('feedback-stop-sound', dig(cfg, 'feedback', 'stop_sound'), false);
@@ -1080,7 +1067,6 @@ function buildFormPatch() {
     hotkey: {
       trigger_key: document.getElementById('hotkey-trigger').value,
       trigger_mode: document.getElementById('hotkey-trigger-mode').value,
-      llm_invert_modifier: document.getElementById('hotkey-llm-invert-modifier').value,
     },
     feedback: {
       start_sound: document.getElementById('feedback-start-sound').checked,

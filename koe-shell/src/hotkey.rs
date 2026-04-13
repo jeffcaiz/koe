@@ -154,7 +154,6 @@ fn start_recording() {
     let ctx = SessionContext {
         mode: SessionMode::Toggle,
         session_token: token,
-        llm_invert_modifier_active: false,
     };
 
     if let Err(e) = api::session_begin(ctx) {

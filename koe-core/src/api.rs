@@ -16,7 +16,6 @@ use tokio::sync::mpsc;
 pub struct SessionContext {
     pub mode: SessionMode,
     pub session_token: u64,
-    pub llm_invert_modifier_active: bool,
 }
 
 /// Session mode.
@@ -61,7 +60,6 @@ pub fn session_begin(ctx: SessionContext) -> Result<(), String> {
         frontmost_bundle_id: std::ptr::null(),
         frontmost_pid: 0,
         session_token: ctx.session_token,
-        llm_invert_modifier_active: ctx.llm_invert_modifier_active,
     };
 
     let result = crate::sp_core_session_begin(ffi_ctx);
