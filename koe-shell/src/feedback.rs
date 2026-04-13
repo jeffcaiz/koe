@@ -47,8 +47,9 @@ mod platform {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// Play a Windows system sound event by its registered alias name.
-    fn play_sound_alias(name: &str) {
+    /// Play a Windows system sound event by registry name.
+    /// Looks up HKCU\AppEvents\Schemes\Apps\.Default\<name>\.Current
+    fn play_sound_event(name: &str) {
         let alias = wide(name);
         unsafe {
             PlaySoundW(alias.as_ptr(), ptr::null_mut(), SND_ALIAS | SND_ASYNC);
@@ -56,15 +57,18 @@ mod platform {
     }
 
     pub fn play_start() {
-        play_sound_alias("Speech On");
+        // Windows "Device Connect" sound — a pleasant short chime
+        play_sound_event("DeviceConnect");
     }
 
     pub fn play_stop() {
-        play_sound_alias("Speech Off");
+        // Windows "Device Disconnect" sound — a soft descending tone
+        play_sound_event("DeviceDisconnect");
     }
 
     pub fn play_error() {
-        play_sound_alias("Speech Misrecognition");
+        // Windows system exclamation sound
+        play_sound_event("SystemExclamation");
     }
 }
 
