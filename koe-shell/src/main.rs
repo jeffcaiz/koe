@@ -61,9 +61,18 @@ async fn event_loop(mut rx: mpsc::UnboundedReceiver<KoeEvent>) {
         match event {
             KoeEvent::FinalText { token: _, text } => {
                 log::info!("final text: {text}");
+                // Mirror macOS: set "pasting" state, paste, then "idle"
+                feedback::on_state_changed("pasting");
+                tray::update_status("pasting");
+                overlay::update_state("pasting");
+
                 if let Err(e) = paste::paste(&text) {
                     log::error!("paste failed: {e}");
                 }
+
+                feedback::on_state_changed("idle");
+                tray::update_status("idle");
+                overlay::update_state("idle");
             }
             KoeEvent::StateChanged { token: _, state } => {
                 log::info!("state: {state}");
