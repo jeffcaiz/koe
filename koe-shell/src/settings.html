@@ -8,6 +8,7 @@
   :root {
     --bg: #1a1a2e;
     --surface: #16213e;
+    --surface2: #1e2a47;
     --border: #2a2a4a;
     --text: #e0e0e0;
     --text-dim: #888;
@@ -16,53 +17,78 @@
     --success: #4caf50;
     --error: #f44336;
     --danger: #e53935;
+    --tab-bg: #0f1527;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
-    padding: 0;
     min-height: 100vh;
-  }
-  header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 16px 24px;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+  }
+
+  /* ── Toolbar (macOS-style tab bar) ── */
+  .toolbar {
+    background: var(--tab-bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
     position: sticky;
     top: 0;
     z-index: 10;
   }
-  header h1 { font-size: 18px; font-weight: 600; }
-  header .actions { display: flex; gap: 8px; }
-  .container { max-width: 800px; margin: 0 auto; padding: 24px; }
-  .section {
+  .toolbar-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 24px 10px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 500;
+    transition: all 0.15s;
+    user-select: none;
+    min-width: 80px;
+  }
+  .toolbar-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  .toolbar-item.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .toolbar-item .icon { font-size: 20px; line-height: 1; }
+
+  /* ── Content area ── */
+  .container { max-width: 720px; margin: 0 auto; padding: 24px; width: 100%; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* ── Section cards ── */
+  .card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
     margin-bottom: 16px;
     overflow: hidden;
   }
-  .section-header {
-    padding: 12px 16px;
-    font-size: 14px;
+  .card-header {
+    padding: 10px 16px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--accent);
     border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    user-select: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
-  .section-header:hover { background: rgba(255,255,255,0.03); }
-  .section-header .arrow { transition: transform 0.2s; }
-  .section-header.collapsed .arrow { transform: rotate(-90deg); }
-  .section-body { padding: 16px; }
-  .section-body.hidden { display: none; }
+  .card-body { padding: 16px; }
+
+  /* ── Form fields ── */
   .field { margin-bottom: 14px; }
   .field:last-child { margin-bottom: 0; }
   .field label {
@@ -78,11 +104,15 @@
     border: 1px solid var(--border); border-radius: 4px;
     color: var(--text); font-size: 14px; font-family: inherit;
   }
-  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
   .field input[type="checkbox"] { width: auto; margin-right: 6px; vertical-align: middle; }
   .field .hint { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+  /* ── Buttons ── */
   .btn {
     padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px;
     background: var(--surface); color: var(--text); font-size: 13px;
@@ -94,15 +124,15 @@
   .btn-sm { padding: 4px 10px; font-size: 12px; }
   .btn-danger { color: var(--danger); border-color: var(--danger); }
   .btn-danger:hover { background: rgba(229,57,53,0.15); }
-  .toast {
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    padding: 10px 20px; border-radius: 8px; font-size: 13px; color: #fff;
-    opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100;
-  }
-  .toast.show { opacity: 1; }
-  .toast.success { background: var(--success); }
-  .toast.error { background: var(--error); }
-  /* Profile card */
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Test result ── */
+  .test-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .test-result { font-size: 13px; }
+  .test-result.success { color: var(--success); }
+  .test-result.error { color: var(--error); }
+
+  /* ── Profile card ── */
   .profile-card {
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
     padding: 12px; margin-bottom: 10px;
@@ -110,17 +140,31 @@
   .profile-card.active-profile { border-color: var(--accent); }
   .profile-card-header {
     display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 8px;
+    cursor: pointer;
   }
   .profile-card-header .profile-name { font-weight: 600; font-size: 14px; }
   .profile-card-header .profile-actions { display: flex; gap: 6px; align-items: center; }
-  .profile-card-body { display: none; }
+  .profile-card-body { display: none; margin-top: 10px; }
   .profile-card.expanded .profile-card-body { display: block; }
   .badge {
     font-size: 10px; padding: 2px 6px; border-radius: 3px;
     background: var(--accent); color: #fff; text-transform: uppercase;
   }
-  /* Template list */
+
+  /* ── Editor textarea ── */
+  .editor {
+    width: 100%; min-height: 320px; padding: 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 13px;
+    font-family: 'Cascadia Code', 'Consolas', 'SF Mono', monospace;
+    line-height: 1.6; resize: vertical;
+  }
+  .editor:focus { outline: none; border-color: var(--accent); }
+  .editor-actions {
+    display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;
+  }
+
+  /* ── Template list ── */
   .template-item {
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
     padding: 10px 12px; margin-bottom: 8px;
@@ -131,363 +175,432 @@
   }
   .template-item-body { display: none; padding-top: 10px; }
   .template-item.expanded .template-item-body { display: block; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 10px 20px; border-radius: 8px; font-size: 13px; color: #fff;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: var(--success); }
+  .toast.error { background: var(--error); }
+
+  /* ── Description text ── */
+  .desc {
+    font-size: 13px; color: var(--text-dim); margin-bottom: 16px; line-height: 1.5;
+  }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>Koe Settings</h1>
-  <div class="actions">
-    <button class="btn btn-primary" onclick="save()">Save</button>
+<!-- ═══════════════ Toolbar ═══════════════ -->
+<div class="toolbar">
+  <div class="toolbar-item active" onclick="switchTab('asr', this)">
+    <span class="icon">&#127908;</span>
+    <span>ASR</span>
   </div>
-</header>
+  <div class="toolbar-item" onclick="switchTab('llm', this)">
+    <span class="icon">&#129302;</span>
+    <span>LLM</span>
+  </div>
+  <div class="toolbar-item" onclick="switchTab('controls', this)">
+    <span class="icon">&#9881;&#65039;</span>
+    <span>Controls</span>
+  </div>
+  <div class="toolbar-item" onclick="switchTab('dictionary', this)">
+    <span class="icon">&#128214;</span>
+    <span>Dictionary</span>
+  </div>
+  <div class="toolbar-item" onclick="switchTab('prompt', this)">
+    <span class="icon">&#128172;</span>
+    <span>Prompt</span>
+  </div>
+</div>
 
 <div class="container">
-  <div>
-    <!-- ASR -->
-    <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
-        ASR (Speech Recognition) <span class="arrow">&#9660;</span>
+
+<!-- ═══════════════ ASR Tab ═══════════════ -->
+<div id="tab-asr" class="tab-pane active">
+  <p class="desc">Choose the ASR provider used for speech recognition.</p>
+
+  <div class="card">
+    <div class="card-header">Connection</div>
+    <div class="card-body">
+      <div class="field">
+        <label>Provider</label>
+        <select id="asr-provider">
+          <option value="doubaoime">Doubao IME (free, no key needed)</option>
+          <option value="doubao">Doubao (official API)</option>
+          <option value="qwen">Qwen (Alibaba DashScope)</option>
+          <option value="sherpa-onnx">Sherpa-ONNX (local CPU)</option>
+        </select>
       </div>
-      <div class="section-body">
+
+      <!-- DoubaoIME -->
+      <div id="asr-doubaoime-fields" class="asr-provider-fields" style="display:none">
         <div class="field">
-          <label>Provider</label>
-          <select id="asr-provider">
-            <option value="doubaoime">Doubao IME (free, no key needed)</option>
-            <option value="doubao">Doubao (official API)</option>
-            <option value="qwen">Qwen (Alibaba DashScope)</option>
-            <option value="sherpa-onnx">Sherpa-ONNX (local CPU)</option>
-          </select>
+          <label>Credential Path</label>
+          <input id="asr-doubaoime-credential-path" placeholder="doubaoime_credentials.json">
+          <div class="hint">Relative to ~/.koe/</div>
         </div>
-
-        <!-- DoubaoIME fields -->
-        <div id="asr-doubaoime-fields" class="asr-provider-fields" style="display:none">
+        <div class="row">
           <div class="field">
-            <label>Credential Path</label>
-            <input id="asr-doubaoime-credential-path" placeholder="doubaoime_credentials.json">
-            <div class="hint">Relative to ~/.koe/</div>
+            <label>Connect Timeout (ms)</label>
+            <input type="number" id="asr-doubaoime-connect-timeout" value="3000">
           </div>
-          <div class="row">
-            <div class="field">
-              <label>Connect Timeout (ms)</label>
-              <input type="number" id="asr-doubaoime-connect-timeout" value="3000">
-            </div>
-            <div class="field">
-              <label>Final Wait Timeout (ms)</label>
-              <input type="number" id="asr-doubaoime-final-wait-timeout" value="5000">
-            </div>
+          <div class="field">
+            <label>Final Wait Timeout (ms)</label>
+            <input type="number" id="asr-doubaoime-final-wait-timeout" value="5000">
           </div>
         </div>
+      </div>
 
-        <!-- Doubao fields -->
-        <div id="asr-doubao-fields" class="asr-provider-fields" style="display:none">
-          <div class="row">
-            <div class="field">
-              <label>App Key</label>
-              <input id="asr-doubao-app-key" placeholder="X-Api-App-Key">
-            </div>
-            <div class="field">
-              <label>Access Key</label>
-              <input type="password" id="asr-doubao-access-key" placeholder="X-Api-Access-Key">
-            </div>
+      <!-- Doubao -->
+      <div id="asr-doubao-fields" class="asr-provider-fields" style="display:none">
+        <div class="row">
+          <div class="field">
+            <label>App Key</label>
+            <input id="asr-doubao-app-key" placeholder="X-Api-App-Key">
           </div>
           <div class="field">
-            <label>URL</label>
-            <input id="asr-doubao-url" placeholder="wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async">
-          </div>
-          <div class="field">
-            <label>Resource ID</label>
-            <input id="asr-doubao-resource-id" placeholder="volc.seedasr.sauc.duration">
-          </div>
-          <div class="row">
-            <div class="field">
-              <label>Connect Timeout (ms)</label>
-              <input type="number" id="asr-doubao-connect-timeout" value="3000">
-            </div>
-            <div class="field">
-              <label>Final Wait Timeout (ms)</label>
-              <input type="number" id="asr-doubao-final-wait-timeout" value="5000">
-            </div>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label><input type="checkbox" id="asr-doubao-enable-ddc" checked> <span class="inline">DDC (semantic smoothing)</span></label>
-            </div>
-            <div class="field">
-              <label><input type="checkbox" id="asr-doubao-enable-itn" checked> <span class="inline">ITN (text normalization)</span></label>
-            </div>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label><input type="checkbox" id="asr-doubao-enable-punc" checked> <span class="inline">Auto punctuation</span></label>
-            </div>
-            <div class="field">
-              <label><input type="checkbox" id="asr-doubao-enable-nonstream" checked> <span class="inline">Non-stream (2nd pass)</span></label>
-            </div>
+            <label>Access Key</label>
+            <input type="password" id="asr-doubao-access-key" placeholder="X-Api-Access-Key">
           </div>
         </div>
-
-        <!-- Qwen fields -->
-        <div id="asr-qwen-fields" class="asr-provider-fields" style="display:none">
+        <div class="field">
+          <label>URL</label>
+          <input id="asr-doubao-url" placeholder="wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async">
+        </div>
+        <div class="field">
+          <label>Resource ID</label>
+          <input id="asr-doubao-resource-id" placeholder="volc.seedasr.sauc.duration">
+        </div>
+        <div class="row">
           <div class="field">
-            <label>API Key</label>
-            <input type="password" id="asr-qwen-api-key" placeholder="sk-...">
+            <label>Connect Timeout (ms)</label>
+            <input type="number" id="asr-doubao-connect-timeout" value="3000">
           </div>
           <div class="field">
-            <label>URL</label>
-            <input id="asr-qwen-url" placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime">
-          </div>
-          <div class="row">
-            <div class="field">
-              <label>Model</label>
-              <input id="asr-qwen-model" placeholder="qwen3-asr-flash-realtime">
-            </div>
-            <div class="field">
-              <label>Language</label>
-              <input id="asr-qwen-language" value="zh" placeholder="zh">
-            </div>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label>Connect Timeout (ms)</label>
-              <input type="number" id="asr-qwen-connect-timeout" value="3000">
-            </div>
-            <div class="field">
-              <label>Final Wait Timeout (ms)</label>
-              <input type="number" id="asr-qwen-final-wait-timeout" value="5000">
-            </div>
+            <label>Final Wait Timeout (ms)</label>
+            <input type="number" id="asr-doubao-final-wait-timeout" value="5000">
           </div>
         </div>
+        <div class="row">
+          <div class="field">
+            <label><input type="checkbox" id="asr-doubao-enable-ddc" checked> <span class="inline">DDC (semantic smoothing)</span></label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="asr-doubao-enable-itn" checked> <span class="inline">ITN (text normalization)</span></label>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label><input type="checkbox" id="asr-doubao-enable-punc" checked> <span class="inline">Auto punctuation</span></label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="asr-doubao-enable-nonstream" checked> <span class="inline">Non-stream (2nd pass)</span></label>
+          </div>
+        </div>
+      </div>
 
-        <!-- Sherpa-ONNX fields -->
-        <div id="asr-sherpa-onnx-fields" class="asr-provider-fields" style="display:none">
+      <!-- Qwen -->
+      <div id="asr-qwen-fields" class="asr-provider-fields" style="display:none">
+        <div class="field">
+          <label>API Key</label>
+          <input type="password" id="asr-qwen-api-key" placeholder="sk-...">
+        </div>
+        <div class="field">
+          <label>URL</label>
+          <input id="asr-qwen-url" placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime">
+        </div>
+        <div class="row">
           <div class="field">
             <label>Model</label>
-            <input id="asr-sherpa-onnx-model" placeholder="sherpa-onnx/bilingual-zh-en">
-            <div class="hint">Relative to ~/.koe/models/, or absolute path</div>
+            <input id="asr-qwen-model" placeholder="qwen3-asr-flash-realtime">
           </div>
-          <div class="row3">
-            <div class="field">
-              <label>Threads</label>
-              <input type="number" id="asr-sherpa-onnx-num-threads" value="2" min="1" max="16">
-            </div>
-            <div class="field">
-              <label>Hotwords Score</label>
-              <input type="number" id="asr-sherpa-onnx-hotwords-score" value="1.5" step="0.1">
-            </div>
-            <div class="field">
-              <label>Endpoint Silence (s)</label>
-              <input type="number" id="asr-sherpa-onnx-endpoint-silence" value="1.2" step="0.1">
-            </div>
+          <div class="field">
+            <label>Language</label>
+            <input id="asr-qwen-language" value="zh" placeholder="zh">
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- LLM -->
-    <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
-        LLM (Text Correction) <span class="arrow">&#9660;</span>
-      </div>
-      <div class="section-body">
         <div class="row">
           <div class="field">
-            <label><input type="checkbox" id="llm-enabled" checked> <span class="inline">Enable LLM correction</span></label>
+            <label>Connect Timeout (ms)</label>
+            <input type="number" id="asr-qwen-connect-timeout" value="3000">
           </div>
           <div class="field">
-            <label><input type="checkbox" id="llm-prompt-templates-enabled"> <span class="inline">Enable prompt template buttons</span></label>
+            <label>Final Wait Timeout (ms)</label>
+            <input type="number" id="asr-qwen-final-wait-timeout" value="5000">
           </div>
         </div>
+      </div>
 
-        <!-- Active profile selector -->
+      <!-- Sherpa-ONNX -->
+      <div id="asr-sherpa-onnx-fields" class="asr-provider-fields" style="display:none">
         <div class="field">
-          <label>Active Profile</label>
-          <select id="llm-active-profile"></select>
+          <label>Model</label>
+          <input id="asr-sherpa-onnx-model" placeholder="sherpa-onnx/bilingual-zh-en">
+          <div class="hint">Relative to ~/.koe/models/, or absolute path</div>
         </div>
-
-        <!-- Profile cards -->
-        <div id="llm-profiles-container"></div>
-        <button class="btn btn-sm" onclick="addProfile()" style="margin-top: 8px">+ Add Profile</button>
-
-        <!-- Global LLM parameters -->
-        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);">
-          <div class="row">
-            <div class="field">
-              <label>Temperature</label>
-              <input type="number" id="llm-temperature" value="0" min="0" max="2" step="0.1">
-            </div>
-            <div class="field">
-              <label>Top P</label>
-              <input type="number" id="llm-top-p" value="1" min="0" max="1" step="0.05">
-            </div>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label>Timeout (ms)</label>
-              <input type="number" id="llm-timeout" value="8000" min="1000" max="60000" step="1000">
-            </div>
-            <div class="field">
-              <label>Max Output Tokens</label>
-              <input type="number" id="llm-max-output-tokens" value="1024" min="1">
-            </div>
-          </div>
-          <div class="field">
-            <label>Dictionary Max Candidates</label>
-            <input type="number" id="llm-dictionary-max-candidates" value="0" min="0">
-            <div class="hint">0 = send all dictionary entries to LLM</div>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label>System Prompt Path</label>
-              <input id="llm-system-prompt-path" placeholder="system_prompt.txt">
-              <div class="hint">Relative to ~/.koe/</div>
-            </div>
-            <div class="field">
-              <label>User Prompt Path</label>
-              <input id="llm-user-prompt-path" placeholder="user_prompt.txt">
-              <div class="hint">Relative to ~/.koe/</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Hotkey -->
-    <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
-        Hotkey <span class="arrow">&#9660;</span>
-      </div>
-      <div class="section-body">
-        <div class="row">
-          <div class="field">
-            <label>Trigger Key</label>
-            <select id="hotkey-trigger">
-              <option value="right_alt">Right Alt</option>
-              <option value="left_alt">Left Alt</option>
-              <option value="right_ctrl">Right Ctrl</option>
-              <option value="left_control">Left Ctrl</option>
-              <option value="caps_lock">Caps Lock</option>
-              <option value="f1">F1</option>
-              <option value="f2">F2</option>
-              <option value="f3">F3</option>
-              <option value="f4">F4</option>
-              <option value="f5">F5</option>
-              <option value="f6">F6</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Trigger Mode</label>
-            <select id="hotkey-trigger-mode">
-              <option value="hold">Hold (press-and-hold)</option>
-              <option value="toggle">Toggle (tap to start/stop)</option>
-            </select>
-          </div>
-        </div>
-        <div class="field">
-          <label>LLM Invert Modifier</label>
-          <select id="hotkey-llm-invert-modifier">
-            <option value="control">Control</option>
-            <option value="option">Option / Alt</option>
-            <option value="command">Command / Win</option>
-            <option value="shift">Shift</option>
-            <option value="fn">Fn</option>
-            <option value="none">None (disabled)</option>
-          </select>
-          <div class="hint">Hold this modifier while pressing the trigger key to invert LLM correction (skip if enabled, use if disabled)</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feedback -->
-    <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
-        Feedback (Sounds) <span class="arrow">&#9660;</span>
-      </div>
-      <div class="section-body">
         <div class="row3">
           <div class="field">
-            <label><input type="checkbox" id="feedback-start-sound"> <span class="inline">Start sound</span></label>
+            <label>Threads</label>
+            <input type="number" id="asr-sherpa-onnx-num-threads" value="2" min="1" max="16">
           </div>
           <div class="field">
-            <label><input type="checkbox" id="feedback-stop-sound"> <span class="inline">Stop sound</span></label>
+            <label>Hotwords Score</label>
+            <input type="number" id="asr-sherpa-onnx-hotwords-score" value="1.5" step="0.1">
           </div>
           <div class="field">
-            <label><input type="checkbox" id="feedback-error-sound"> <span class="inline">Error sound</span></label>
+            <label>Endpoint Silence (s)</label>
+            <input type="number" id="asr-sherpa-onnx-endpoint-silence" value="1.2" step="0.1">
           </div>
         </div>
+      </div>
+
+      <!-- Test button -->
+      <div class="test-row">
+        <button class="btn btn-sm" id="asr-test-btn" onclick="testAsr()">Test</button>
+        <span id="asr-test-result" class="test-result"></span>
       </div>
     </div>
+  </div>
 
-    <!-- Overlay -->
-    <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
-        Overlay <span class="arrow">&#9660;</span>
+  <div style="display:flex; justify-content:flex-end;">
+    <button class="btn btn-primary" onclick="save()">Save</button>
+  </div>
+</div>
+
+<!-- ═══════════════ LLM Tab ═══════════════ -->
+<div id="tab-llm" class="tab-pane">
+  <p class="desc">Configure LLM for post-correction. When disabled, raw ASR output is used directly.</p>
+
+  <div class="card">
+    <div class="card-header">
+      LLM Correction
+      <label style="font-weight:normal;font-size:13px;text-transform:none;letter-spacing:0;color:var(--text)">
+        <input type="checkbox" id="llm-enabled" checked> Enabled
+      </label>
+    </div>
+    <div class="card-body">
+      <!-- Active profile selector -->
+      <div class="field">
+        <label>Active Profile</label>
+        <select id="llm-active-profile"></select>
       </div>
-      <div class="section-body">
-        <div class="row">
-          <div class="field">
-            <label>Font Family</label>
-            <input id="overlay-font-family" placeholder="system">
-          </div>
-          <div class="field">
-            <label>Font Size</label>
-            <input type="number" id="overlay-font-size" value="13" min="8" max="72">
-          </div>
-        </div>
-        <div class="row">
-          <div class="field">
-            <label>Bottom Margin (px)</label>
-            <input type="number" id="overlay-bottom-margin" value="10" min="0">
-          </div>
-          <div class="field">
-            <label>Max Visible Lines</label>
-            <input type="number" id="overlay-max-visible-lines" value="3" min="1" max="20">
-          </div>
+
+      <!-- Profile cards -->
+      <div id="llm-profiles-container"></div>
+      <button class="btn btn-sm" onclick="addProfile()" style="margin-top: 8px">+ Add Profile</button>
+
+      <!-- Test button -->
+      <div class="test-row">
+        <button class="btn btn-sm" id="llm-test-btn" onclick="testLlm()">Test Connection</button>
+        <span id="llm-test-result" class="test-result"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">Parameters</div>
+    <div class="card-body">
+      <div class="row">
+        <div class="field">
+          <label>Temperature</label>
+          <input type="number" id="llm-temperature" value="0" min="0" max="2" step="0.1">
         </div>
         <div class="field">
-          <label><input type="checkbox" id="overlay-limit-visible-lines" checked> <span class="inline">Limit visible lines</span></label>
+          <label>Top P</label>
+          <input type="number" id="llm-top-p" value="1" min="0" max="1" step="0.05">
         </div>
       </div>
-    </div>
-
-    <!-- Dictionary -->
-    <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
-        Dictionary <span class="arrow">&#9660;</span>
-      </div>
-      <div class="section-body">
+      <div class="row">
         <div class="field">
-          <label>Dictionary Path</label>
-          <input id="dictionary-path" placeholder="dictionary.txt">
-          <div class="hint">Relative to ~/.koe/. One term per line, used to boost LLM correction accuracy.</div>
+          <label>Timeout (ms)</label>
+          <input type="number" id="llm-timeout" value="8000" min="1000" max="60000" step="1000">
+        </div>
+        <div class="field">
+          <label>Max Output Tokens</label>
+          <input type="number" id="llm-max-output-tokens" value="1024" min="1">
+        </div>
+      </div>
+      <div class="field">
+        <label>Dictionary Max Candidates</label>
+        <input type="number" id="llm-dictionary-max-candidates" value="0" min="0">
+        <div class="hint">0 = send all dictionary entries to LLM</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex; justify-content:flex-end;">
+    <button class="btn btn-primary" onclick="save()">Save</button>
+  </div>
+</div>
+
+<!-- ═══════════════ Controls Tab ═══════════════ -->
+<div id="tab-controls" class="tab-pane">
+  <p class="desc">Configure hotkey, trigger mode, and feedback sounds.</p>
+
+  <div class="card">
+    <div class="card-header">Trigger</div>
+    <div class="card-body">
+      <div class="row">
+        <div class="field">
+          <label>Trigger Key</label>
+          <select id="hotkey-trigger">
+            <option value="right_alt">Right Alt</option>
+            <option value="left_alt">Left Alt</option>
+            <option value="right_ctrl">Right Ctrl</option>
+            <option value="left_control">Left Ctrl</option>
+            <option value="caps_lock">Caps Lock</option>
+            <option value="f1">F1</option>
+            <option value="f2">F2</option>
+            <option value="f3">F3</option>
+            <option value="f4">F4</option>
+            <option value="f5">F5</option>
+            <option value="f6">F6</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Trigger Mode</label>
+          <select id="hotkey-trigger-mode">
+            <option value="hold">Hold (press-and-hold)</option>
+            <option value="toggle">Toggle (tap to start/stop)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>LLM Invert Modifier</label>
+        <select id="hotkey-llm-invert-modifier">
+          <option value="control">Control</option>
+          <option value="option">Option / Alt</option>
+          <option value="command">Command / Win</option>
+          <option value="shift">Shift</option>
+          <option value="none">None (disabled)</option>
+        </select>
+        <div class="hint">Hold this modifier while pressing the trigger key to invert LLM correction (skip if enabled, use if disabled)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">Feedback Sounds</div>
+    <div class="card-body">
+      <div class="row3">
+        <div class="field">
+          <label><input type="checkbox" id="feedback-start-sound"> <span class="inline">Start sound</span></label>
+        </div>
+        <div class="field">
+          <label><input type="checkbox" id="feedback-stop-sound"> <span class="inline">Stop sound</span></label>
+        </div>
+        <div class="field">
+          <label><input type="checkbox" id="feedback-error-sound"> <span class="inline">Error sound</span></label>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Prompt Templates -->
-    <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
-        Prompt Templates <span class="arrow">&#9660;</span>
-      </div>
-      <div class="section-body">
-        <div class="hint" style="margin-bottom: 10px">
-          Prompt templates allow rewriting ASR text with different system prompts (e.g. translate to English).
-          Shown as overlay buttons after transcription when enabled above.
+  <div class="card">
+    <div class="card-header">Overlay</div>
+    <div class="card-body">
+      <div class="row">
+        <div class="field">
+          <label>Font Family</label>
+          <input id="overlay-font-family" placeholder="system">
         </div>
-        <div id="prompt-templates-container"></div>
-        <button class="btn btn-sm" onclick="addTemplate()" style="margin-top: 8px">+ Add Template</button>
+        <div class="field">
+          <label>Font Size</label>
+          <input type="number" id="overlay-font-size" value="13" min="8" max="72">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Bottom Margin (px)</label>
+          <input type="number" id="overlay-bottom-margin" value="10" min="0">
+        </div>
+        <div class="field">
+          <label>Max Visible Lines</label>
+          <input type="number" id="overlay-max-visible-lines" value="3" min="1" max="20">
+        </div>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="overlay-limit-visible-lines" checked> <span class="inline">Limit visible lines</span></label>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex; justify-content:flex-end;">
+    <button class="btn btn-primary" onclick="save()">Save</button>
+  </div>
+</div>
+
+<!-- ═══════════════ Dictionary Tab ═══════════════ -->
+<div id="tab-dictionary" class="tab-pane">
+  <p class="desc">User dictionary &mdash; one term per line. These terms are prioritized during LLM correction. Lines starting with # are comments.</p>
+
+  <div class="card">
+    <div class="card-header">Dictionary</div>
+    <div class="card-body">
+      <textarea id="dictionary-editor" class="editor" placeholder="# One term per line&#10;Claude&#10;Anthropic&#10;koe" spellcheck="false"></textarea>
+      <div class="editor-actions">
+        <button class="btn btn-sm" onclick="loadFile('dictionary')">Reload</button>
+        <button class="btn btn-sm btn-primary" onclick="saveFile('dictionary')">Save Dictionary</button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- ═══════════════ Prompt Tab ═══════════════ -->
+<div id="tab-prompt" class="tab-pane">
+  <p class="desc">System prompt sent to the LLM for text correction, and prompt templates for overlay rewrite buttons.</p>
+
+  <div class="card">
+    <div class="card-header">System Prompt</div>
+    <div class="card-body">
+      <textarea id="system-prompt-editor" class="editor" placeholder="Enter system prompt for LLM text correction..." spellcheck="false"></textarea>
+      <div class="editor-actions">
+        <button class="btn btn-sm" onclick="loadFile('system_prompt')">Reload</button>
+        <button class="btn btn-sm btn-primary" onclick="saveFile('system_prompt')">Save Prompt</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      Prompt Templates
+      <label style="font-weight:normal;font-size:13px;text-transform:none;letter-spacing:0;color:var(--text)">
+        <input type="checkbox" id="llm-prompt-templates-enabled"> Show in overlay
+      </label>
+    </div>
+    <div class="card-body">
+      <div class="hint" style="margin-bottom: 10px">
+        Prompt templates rewrite ASR text with different system prompts (e.g. translate to English).
+        Shown as overlay buttons after transcription.
+      </div>
+      <div id="prompt-templates-container"></div>
+      <button class="btn btn-sm" onclick="addTemplate()" style="margin-top: 8px">+ Add Template</button>
+      <div class="editor-actions" style="margin-top: 12px">
+        <button class="btn btn-primary" onclick="save()">Save Templates</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
 <div id="toast" class="toast"></div>
 
 <script>
-// ── Section toggle ──────────────────────────────────────────────────
-function toggleSection(header) {
-  header.classList.toggle('collapsed');
-  header.nextElementSibling.classList.toggle('hidden');
+// ── Tab switching ───────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.toolbar-item').forEach(function(t) { t.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+  // Load file content when switching to dictionary or prompt tabs
+  if (name === 'dictionary') loadFile('dictionary');
+  if (name === 'prompt') loadFile('system_prompt');
 }
 
 // ── ASR provider toggle ─────────────────────────────────────────────
@@ -504,7 +617,7 @@ function showToast(msg, type) {
   var el = document.getElementById('toast');
   el.textContent = msg;
   el.className = 'toast ' + type + ' show';
-  setTimeout(function() { el.classList.remove('show'); }, 2000);
+  setTimeout(function() { el.classList.remove('show'); }, 2500);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -540,6 +653,16 @@ function setSelect(id, val, fallback) {
     }
   }
   if (fallback) el.value = fallback;
+}
+
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ── Load config ─────────────────────────────────────────────────────
@@ -602,8 +725,6 @@ function populateForm(cfg) {
   setVal('llm-timeout', dig(cfg, 'llm', 'timeout_ms'), '8000');
   setVal('llm-max-output-tokens', dig(cfg, 'llm', 'max_output_tokens'), '1024');
   setVal('llm-dictionary-max-candidates', dig(cfg, 'llm', 'dictionary_max_candidates'), '0');
-  setVal('llm-system-prompt-path', dig(cfg, 'llm', 'system_prompt_path'), 'system_prompt.txt');
-  setVal('llm-user-prompt-path', dig(cfg, 'llm', 'user_prompt_path'), 'user_prompt.txt');
 
   // LLM Profiles
   var activeProfile = dig(cfg, 'llm', 'active_profile') || 'openai';
@@ -627,9 +748,6 @@ function populateForm(cfg) {
   setVal('overlay-max-visible-lines', dig(cfg, 'overlay', 'max_visible_lines'), '3');
   setBool('overlay-limit-visible-lines', dig(cfg, 'overlay', 'limit_visible_lines'), true);
 
-  // ── Dictionary ──
-  setVal('dictionary-path', dig(cfg, 'dictionary', 'path'), 'dictionary.txt');
-
   // ── Prompt Templates ──
   var templates = cfg.prompt_templates || [];
   renderTemplates(templates);
@@ -642,28 +760,22 @@ function renderProfiles(profiles, activeId) {
   container.innerHTML = '';
   selector.innerHTML = '';
 
-  if (!profiles || typeof profiles !== 'object') {
-    profiles = {};
-  }
+  if (!profiles || typeof profiles !== 'object') profiles = {};
 
   var keys = Object.keys(profiles);
   keys.forEach(function(id) {
     var p = profiles[id];
     var isActive = (id === activeId);
 
-    // Selector option
     var opt = document.createElement('option');
     opt.value = id;
     opt.textContent = p.name || id;
     if (isActive) opt.selected = true;
     selector.appendChild(opt);
 
-    // Profile card
     var card = document.createElement('div');
     card.className = 'profile-card' + (isActive ? ' active-profile' : '');
     card.dataset.profileId = id;
-
-    var providerLabel = (p.provider === 'mlx') ? 'MLX' : 'OpenAI Compatible';
 
     card.innerHTML =
       '<div class="profile-card-header" onclick="toggleProfileCard(this.parentNode)">' +
@@ -673,39 +785,14 @@ function renderProfiles(profiles, activeId) {
         '</span>' +
       '</div>' +
       '<div class="profile-card-body">' +
-        '<div class="field"><label>Profile ID</label><input class="p-id" value="' + escAttr(id) + '" readonly></div>' +
-        '<div class="field"><label>Display Name</label><input class="p-name" value="' + escAttr(p.name || '') + '"></div>' +
-        '<div class="field"><label>Provider</label>' +
-          '<select class="p-provider" onchange="toggleMlxFields(this.closest(\'.profile-card\'))">' +
-            '<option value="openai"' + (p.provider !== 'mlx' ? ' selected' : '') + '>OpenAI Compatible</option>' +
-            '<option value="mlx"' + (p.provider === 'mlx' ? ' selected' : '') + '>MLX (Apple Silicon)</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="p-openai-fields"' + (p.provider === 'mlx' ? ' style="display:none"' : '') + '>' +
-          '<div class="field"><label>Base URL</label><input class="p-base-url" value="' + escAttr(p.base_url || '') + '" placeholder="https://api.openai.com/v1"></div>' +
-          '<div class="field"><label>API Key</label><input type="password" class="p-api-key" value="' + escAttr(p.api_key || '') + '" placeholder="sk-..."></div>' +
-          '<div class="field"><label>Model</label><input class="p-model" value="' + escAttr(p.model || '') + '" placeholder="gpt-4o-mini"></div>' +
-          '<div class="row">' +
-            '<div class="field"><label>Max Token Parameter</label>' +
-              '<select class="p-max-token-param">' +
-                '<option value="max_completion_tokens"' + (p.max_token_parameter === 'max_completion_tokens' ? ' selected' : '') + '>max_completion_tokens</option>' +
-                '<option value="max_tokens"' + (p.max_token_parameter === 'max_tokens' ? ' selected' : '') + '>max_tokens</option>' +
-              '</select>' +
-            '</div>' +
-            '<div class="field"><label>No-Reasoning Control</label>' +
-              '<select class="p-no-reasoning">' +
-                '<option value="reasoning_effort"' + ((!p.no_reasoning_control || p.no_reasoning_control === 'reasoning_effort') ? ' selected' : '') + '>reasoning_effort</option>' +
-                '<option value="thinking"' + (p.no_reasoning_control === 'thinking' ? ' selected' : '') + '>thinking</option>' +
-                '<option value="none"' + (p.no_reasoning_control === 'none' ? ' selected' : '') + '>none</option>' +
-              '</select>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="p-mlx-fields"' + (p.provider !== 'mlx' ? ' style="display:none"' : '') + '>' +
-          '<div class="field"><label>MLX Model</label><input class="p-mlx-model" value="' + escAttr(dig(p, 'mlx', 'model') || '') + '" placeholder="mlx/Qwen3-0.6B-4bit">' +
-            '<div class="hint">Relative to ~/.koe/models/, or absolute path</div>' +
-          '</div>' +
-        '</div>' +
+        '<input type="hidden" class="p-id" value="' + escAttr(id) + '">' +
+        '<input type="hidden" class="p-provider" value="openai">' +
+        '<input type="hidden" class="p-max-token-param" value="' + escAttr(p.max_token_parameter || 'max_tokens') + '">' +
+        '<input type="hidden" class="p-no-reasoning" value="' + escAttr(p.no_reasoning_control || 'none') + '">' +
+        '<div class="field"><label>API Key</label><input type="password" class="p-api-key" value="' + escAttr(p.api_key || '') + '" placeholder="填入 API Key 即可使用"></div>' +
+        '<div class="field"><label>Base URL</label><input class="p-base-url" value="' + escAttr(p.base_url || '') + '"></div>' +
+        '<div class="field"><label>Model</label><input class="p-model" value="' + escAttr(p.model || '') + '"></div>' +
+        '<input type="hidden" class="p-name" value="' + escAttr(p.name || '') + '">' +
       '</div>';
 
     container.appendChild(card);
@@ -716,19 +803,20 @@ function toggleProfileCard(card) {
   card.classList.toggle('expanded');
 }
 
-function toggleMlxFields(card) {
-  var isMlx = card.querySelector('.p-provider').value === 'mlx';
-  card.querySelector('.p-openai-fields').style.display = isMlx ? 'none' : 'block';
-  card.querySelector('.p-mlx-fields').style.display = isMlx ? 'block' : 'none';
-}
-
 function addProfile() {
-  var id = 'profile_' + Date.now();
+  var id = 'custom_' + Date.now();
   var profiles = collectProfiles();
-  profiles[id] = { name: 'New Profile', provider: 'openai', base_url: '', api_key: '', model: '' };
+  profiles[id] = {
+    name: 'Custom',
+    provider: 'openai',
+    base_url: '',
+    api_key: '',
+    model: '',
+    max_token_parameter: 'max_tokens',
+    no_reasoning_control: 'none',
+  };
   var activeId = document.getElementById('llm-active-profile').value;
   renderProfiles(profiles, activeId);
-  // Expand the new card
   var cards = document.querySelectorAll('.profile-card');
   if (cards.length > 0) cards[cards.length - 1].classList.add('expanded');
 }
@@ -750,20 +838,15 @@ function collectProfiles() {
   var profiles = {};
   document.querySelectorAll('.profile-card').forEach(function(card) {
     var id = card.querySelector('.p-id').value;
-    var provider = card.querySelector('.p-provider').value;
     var profile = {
       name: card.querySelector('.p-name').value,
-      provider: provider,
+      provider: 'openai',
+      base_url: card.querySelector('.p-base-url').value,
+      api_key: card.querySelector('.p-api-key').value,
+      model: card.querySelector('.p-model').value,
+      max_token_parameter: card.querySelector('.p-max-token-param').value,
+      no_reasoning_control: card.querySelector('.p-no-reasoning').value,
     };
-    if (provider === 'mlx') {
-      profile.mlx = { model: card.querySelector('.p-mlx-model').value };
-    } else {
-      profile.base_url = card.querySelector('.p-base-url').value;
-      profile.api_key = card.querySelector('.p-api-key').value;
-      profile.model = card.querySelector('.p-model').value;
-      profile.max_token_parameter = card.querySelector('.p-max-token-param').value;
-      profile.no_reasoning_control = card.querySelector('.p-no-reasoning').value;
-    }
     profiles[id] = profile;
   });
   return profiles;
@@ -795,7 +878,7 @@ function renderTemplates(templates) {
         '</div>' +
         '<div class="field"><label><input type="checkbox" class="t-enabled"' + (t.enabled !== false ? ' checked' : '') + '> <span class="inline">Enabled</span></label></div>' +
         '<div class="field"><label>System Prompt</label>' +
-          '<textarea class="t-system-prompt" rows="3" placeholder="Enter system prompt text...">' + escHtml(t.system_prompt || '') + '</textarea>' +
+          '<textarea class="t-system-prompt" rows="3" placeholder="Enter system prompt text..." style="font-family:\'Cascadia Code\',Consolas,monospace;font-size:13px">' + escHtml(t.system_prompt || '') + '</textarea>' +
         '</div>' +
         '<div class="field"><label>System Prompt Path (alternative)</label>' +
           '<input class="t-system-prompt-path" value="' + escAttr(t.system_prompt_path || '') + '" placeholder="e.g. translate_prompt.txt">' +
@@ -839,15 +922,122 @@ function collectTemplates() {
   return templates;
 }
 
-// ── HTML escaping ───────────────────────────────────────────────────
-function escHtml(s) {
-  var d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+// ── File read/write (dictionary, system_prompt) ─────────────────────
+async function loadFile(name) {
+  try {
+    var res = await fetch('/api/file/' + name);
+    var text = await res.text();
+    if (name === 'dictionary') {
+      document.getElementById('dictionary-editor').value = text;
+    } else if (name === 'system_prompt') {
+      document.getElementById('system-prompt-editor').value = text;
+    }
+  } catch (e) {
+    showToast('Failed to load ' + name, 'error');
+  }
 }
 
-function escAttr(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+async function saveFile(name) {
+  var content;
+  if (name === 'dictionary') {
+    content = document.getElementById('dictionary-editor').value;
+  } else if (name === 'system_prompt') {
+    content = document.getElementById('system-prompt-editor').value;
+  } else {
+    return;
+  }
+  try {
+    var res = await fetch('/api/file/' + name, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: content,
+    });
+    if (res.ok) {
+      showToast((name === 'dictionary' ? 'Dictionary' : 'System prompt') + ' saved!', 'success');
+      // Reload koe-core so changes take effect
+      fetch('/api/reload', { method: 'POST' });
+    } else {
+      showToast('Save failed: ' + await res.text(), 'error');
+    }
+  } catch (e) {
+    showToast('Save failed: ' + e, 'error');
+  }
+}
+
+// ── Test ASR ────────────────────────────────────────────────────────
+function testAsr() {
+  var btn = document.getElementById('asr-test-btn');
+  var result = document.getElementById('asr-test-result');
+  // For ASR we just save and reload, since runtime testing requires audio
+  btn.disabled = true;
+  result.textContent = 'Saving config and reloading...';
+  result.className = 'test-result';
+  save().then(function() {
+    result.textContent = 'Config saved & reloaded. Try speaking to test.';
+    result.className = 'test-result success';
+    btn.disabled = false;
+  }).catch(function(e) {
+    result.textContent = 'Error: ' + e;
+    result.className = 'test-result error';
+    btn.disabled = false;
+  });
+}
+
+// ── Test LLM ────────────────────────────────────────────────────────
+async function testLlm() {
+  var btn = document.getElementById('llm-test-btn');
+  var result = document.getElementById('llm-test-result');
+
+  // Find the active profile card
+  var activeId = document.getElementById('llm-active-profile').value;
+  var card = null;
+  document.querySelectorAll('.profile-card').forEach(function(c) {
+    if (c.dataset.profileId === activeId) card = c;
+  });
+  if (!card) {
+    result.textContent = 'No active profile selected';
+    result.className = 'test-result error';
+    return;
+  }
+
+  var baseUrl = card.querySelector('.p-base-url').value;
+  var model = card.querySelector('.p-model').value;
+  if (!baseUrl || !model) {
+    result.textContent = 'Base URL and Model are required';
+    result.className = 'test-result error';
+    return;
+  }
+
+  btn.disabled = true;
+  result.textContent = 'Testing...';
+  result.className = 'test-result';
+
+  try {
+    var res = await fetch('/api/test/llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base_url: baseUrl,
+        api_key: card.querySelector('.p-api-key').value,
+        model: model,
+        max_token_parameter: card.querySelector('.p-max-token-param').value,
+        no_reasoning_control: card.querySelector('.p-no-reasoning').value,
+      }),
+    });
+    var data = await res.json();
+    var elapsed = (data.elapsed_ms / 1000).toFixed(1);
+    if (data.success) {
+      result.textContent = 'Success (' + elapsed + 's)';
+      result.className = 'test-result success';
+    } else {
+      result.textContent = data.message + ' (' + elapsed + 's)';
+      result.className = 'test-result error';
+    }
+  } catch (e) {
+    result.textContent = 'Request failed: ' + e;
+    result.className = 'test-result error';
+  }
+  btn.disabled = false;
 }
 
 // ── Save config ─────────────────────────────────────────────────────
@@ -886,8 +1076,6 @@ function buildFormPatch() {
       timeout_ms: parseInt(document.getElementById('llm-timeout').value) || 8000,
       max_output_tokens: parseInt(document.getElementById('llm-max-output-tokens').value) || 1024,
       dictionary_max_candidates: parseInt(document.getElementById('llm-dictionary-max-candidates').value) || 0,
-      system_prompt_path: document.getElementById('llm-system-prompt-path').value || 'system_prompt.txt',
-      user_prompt_path: document.getElementById('llm-user-prompt-path').value || 'user_prompt.txt',
     },
     hotkey: {
       trigger_key: document.getElementById('hotkey-trigger').value,
@@ -905,9 +1093,6 @@ function buildFormPatch() {
       bottom_margin: parseInt(document.getElementById('overlay-bottom-margin').value) || 10,
       limit_visible_lines: document.getElementById('overlay-limit-visible-lines').checked,
       max_visible_lines: parseInt(document.getElementById('overlay-max-visible-lines').value) || 3,
-    },
-    dictionary: {
-      path: document.getElementById('dictionary-path').value || 'dictionary.txt',
     },
     prompt_templates: collectTemplates(),
   };

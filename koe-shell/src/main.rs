@@ -34,6 +34,9 @@ fn main() {
     }
     log::info!("koe-core initialized");
 
+    // Strip macOS-only defaults from config (apfel, mlx profiles; fn hotkey)
+    sanitize_config();
+
     // Start the tokio runtime for async event processing
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -102,6 +105,158 @@ fn init_logging(debug: bool) {
             }
         }
     }
+}
+
+/// Remove macOS-only defaults from config.yaml so the on-disk file makes sense
+/// for Windows / Linux. Only touches values that still match the upstream defaults;
+/// user-customized configs are left alone.
+fn sanitize_config() {
+    use koe_core::config;
+
+    let path = config::config_path();
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let mut doc: serde_yaml::Value = match serde_yaml::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let mut changed = false;
+
+    // Replace macOS-only / bare upstream profiles with friendly provider presets.
+    // Only act when profiles look like the upstream default set (has apfel/mlx,
+    // or is the single "openai" profile with empty api_key).
+    if let Some(profiles) = doc
+        .get_mut("llm")
+        .and_then(|l| l.get_mut("profiles"))
+        .and_then(|p| p.as_mapping_mut())
+    {
+        let has_macos = profiles
+            .keys()
+            .any(|k| matches!(k.as_str(), Some("apfel" | "mlx")));
+        let is_bare_openai = profiles.len() == 1
+            && profiles
+                .get(&serde_yaml::Value::String("openai".into()))
+                .and_then(|v| v.get("api_key"))
+                .and_then(|v| v.as_str())
+                .map_or(false, |k| k.is_empty());
+
+        if has_macos || is_bare_openai {
+            // Replace with friendly presets
+            *profiles = shell_default_profiles();
+            changed = true;
+        }
+    }
+
+    // Fix active_profile if it pointed to a removed profile
+    if let Some(llm) = doc.get_mut("llm") {
+        if let Some(active) = llm.get("active_profile").and_then(|v| v.as_str()) {
+            if matches!(active, "apfel" | "mlx" | "openai") {
+                llm["active_profile"] =
+                    serde_yaml::Value::String("doubao".into());
+                changed = true;
+            }
+        }
+    }
+
+    // Fix ASR provider if set to macOS-only values
+    if let Some(asr) = doc.get_mut("asr") {
+        if let Some(provider) = asr.get("provider").and_then(|v| v.as_str()) {
+            if provider == "mlx" || provider == "apple-speech" {
+                asr["provider"] = serde_yaml::Value::String("doubaoime".into());
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        if let Ok(output) = serde_yaml::to_string(&doc) {
+            let _ = config::atomic_write_config(&output);
+            log::info!("sanitized config: removed macOS-only defaults");
+        }
+    }
+}
+
+/// Build a YAML mapping of friendly LLM profiles for Chinese cloud providers.
+fn shell_default_profiles() -> serde_yaml::Mapping {
+    let presets: &[(&str, &str, &str, &str, &str)] = &[
+        // (id, name, base_url, model, max_token_parameter)
+        (
+            "doubao",
+            "豆包 (Doubao)",
+            "https://ark.cn-beijing.volces.com/api/v3",
+            "doubao-1.5-pro-32k",
+            "max_tokens",
+        ),
+        (
+            "qwen",
+            "通义千问 (Qwen)",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "qwen-turbo",
+            "max_tokens",
+        ),
+        (
+            "deepseek",
+            "DeepSeek",
+            "https://api.deepseek.com/v1",
+            "deepseek-chat",
+            "max_tokens",
+        ),
+        (
+            "kimi",
+            "Kimi (Moonshot)",
+            "https://api.moonshot.ai/v1",
+            "kimi-k2.5",
+            "max_tokens",
+        ),
+        (
+            "glm",
+            "智谱 GLM (Zhipu)",
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-4.7-flash",
+            "max_tokens",
+        ),
+        (
+            "minimax",
+            "MiniMax (海螺)",
+            "https://api.minimaxi.com/v1",
+            "MiniMax-M2.5-highspeed",
+            "max_tokens",
+        ),
+        (
+            "claude",
+            "Claude (via OpenRouter)",
+            "https://openrouter.ai/api/v1",
+            "anthropic/claude-sonnet-4",
+            "max_tokens",
+        ),
+        (
+            "openai",
+            "OpenAI",
+            "https://api.openai.com/v1",
+            "gpt-4.1-nano",
+            "max_completion_tokens",
+        ),
+    ];
+
+    let mut profiles = serde_yaml::Mapping::new();
+    for (id, name, base_url, model, max_token_param) in presets {
+        let mut p = serde_yaml::Mapping::new();
+        p.insert("name".into(), (*name).into());
+        p.insert("provider".into(), "openai".into());
+        p.insert("base_url".into(), (*base_url).into());
+        p.insert("api_key".into(), "".into());
+        p.insert("model".into(), (*model).into());
+        p.insert("max_token_parameter".into(), (*max_token_param).into());
+        p.insert("no_reasoning_control".into(), "none".into());
+        profiles.insert(
+            serde_yaml::Value::String(id.to_string()),
+            serde_yaml::Value::Mapping(p),
+        );
+    }
+    profiles
 }
 
 async fn event_loop(mut rx: mpsc::UnboundedReceiver<KoeEvent>) {

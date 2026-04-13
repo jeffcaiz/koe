@@ -44,7 +44,7 @@ cargo build --release --package koe-shell
 ## Usage
 
 1. Run `koe` — a system tray icon appears
-2. Press the hotkey (default: **Left Ctrl**) to start recording
+2. Press the hotkey (default: **Right Alt**) to start recording
 3. Speak — audio streams to the ASR service in real-time
 4. Release the hotkey — corrected text is pasted into the active input field
 
