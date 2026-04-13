@@ -134,6 +134,7 @@ async fn event_loop(mut rx: mpsc::UnboundedReceiver<KoeEvent>) {
             }
             KoeEvent::AsrFinalText { token: _, text } => {
                 log::info!("ASR final: {text}");
+                overlay::update_display_text(&text);
             }
             KoeEvent::SessionReady { .. } => {
                 log::info!("session ready");

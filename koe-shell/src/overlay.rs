@@ -666,13 +666,7 @@ mod platform {
                         granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0,
                     }, None);
                     if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.69, g: 0.69, b: 0.69, a: 1.0 }, None) {
-                        let display_text = if state.interim_text.chars().count() > 40 {
-                            let start = state.interim_text.char_indices().rev().nth(39).map(|(i, _)| i).unwrap_or(0);
-                            format!("\u{2026}{}", &state.interim_text[start..])
-                        } else {
-                            state.interim_text.clone()
-                        };
-                        let interim_wide = to_wide(&display_text);
+                        let interim_wide = to_wide(&state.interim_text);
                         target.DrawText(
                             &interim_wide[..interim_wide.len() - 1], &fmt, &rect, &brush,
                             D2D1_DRAW_TEXT_OPTIONS_CLIP, DWRITE_MEASURING_MODE_NATURAL,
