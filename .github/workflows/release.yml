@@ -48,17 +48,27 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           tar czf ../../../koe-${{ github.ref_name }}-${{ matrix.target }}.tar.gz koe
-      - name: Package (Windows)
+
+      - name: Package (Windows portable)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Compress-Archive -Path "target/${{ matrix.target }}/release/koe.exe" -DestinationPath "koe-${{ github.ref_name }}-${{ matrix.target }}.zip"
 
-      - name: Upload artifact
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:KOE_VERSION = "${{ github.ref_name }}"
+          iscc installer\koe.iss
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
           name: koe-${{ matrix.target }}
-          path: koe-${{ github.ref_name }}-${{ matrix.target }}.*
+          path: |
+            koe-${{ github.ref_name }}-${{ matrix.target }}.*
+            output/*.exe
 
   release:
     needs: build
@@ -73,4 +83,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: koe-*
+          files: |
+            koe-*
+            *.exe
