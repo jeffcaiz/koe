@@ -36,7 +36,8 @@ pub fn on_state_changed(state: &str) {
 
 #[cfg(windows)]
 mod platform {
-    use windows_sys::Win32::Media::{MessageBeep, MB_ICONASTERISK, MB_ICONHAND, MB_OK};
+    use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONASTERISK, MB_ICONHAND, MB_OK};
 
     pub fn play_start() {
         unsafe { MessageBeep(MB_OK); }
