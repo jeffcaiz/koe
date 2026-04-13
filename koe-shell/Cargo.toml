@@ -47,6 +47,7 @@ features = [
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.59"
 features = [
+    "Foundation_Numerics",
     "Win32_Foundation",
     "Win32_Graphics_Direct2D",
     "Win32_Graphics_Direct2D_Common",
