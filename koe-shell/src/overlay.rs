@@ -56,7 +56,6 @@ mod platform {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
     // ── Direct2D / DirectWrite via windows crate ────────────
-    use windows::core::Interface;
     use windows::Win32::Foundation::RECT as D2RECT;
     use windows::Win32::Graphics::Direct2D::Common::*;
     use windows::Win32::Graphics::Direct2D::*;
@@ -64,17 +63,17 @@ mod platform {
     use windows::Win32::Graphics::Dxgi::Common::*;
     use windows::Win32::Graphics::Gdi::HDC as D2HDC;
 
-    // ── Monitor APIs ────────────────────────────────────────
+    // ── Monitor & DPI APIs (not in windows-sys features) ────
     const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
     const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
     extern "system" {
-        fn MonitorFromWindow(hwnd: isize, dwflags: u32) -> *mut std::ffi::c_void;
+        fn MonitorFromWindow(hwnd: HWND, dwflags: u32) -> *mut std::ffi::c_void;
         fn GetMonitorInfoW(hmonitor: *mut std::ffi::c_void, lpmi: *mut MONITORINFO) -> BOOL;
         fn SetProcessDpiAwarenessContext(value: isize) -> BOOL;
-        fn GetDpiForWindow(hwnd: isize) -> u32;
+        fn GetDpiForWindow(hwnd: HWND) -> u32;
         fn UpdateLayeredWindow(
-            hwnd: isize,
+            hwnd: HWND,
             hdcdst: HDC,
             pptdst: *const POINT,
             psize: *const SIZE,
@@ -163,12 +162,12 @@ mod platform {
         accent_color: D2D1_COLOR_F,
         mode: OverlayMode,
         visible: bool,
-        hwnd: isize,
+        hwnd: HWND,
         dismiss_at: Option<std::time::Instant>,
 
-        // D2D resources
-        d2d_factory: ID2D1Factory,
+        // D2D resources — dc_target for BindDC, render_target for drawing
         dc_target: ID2D1DCRenderTarget,
+        render_target: ID2D1RenderTarget,
         dwrite_factory: IDWriteFactory,
 
         // Animation
@@ -238,7 +237,7 @@ mod platform {
         s.encode_utf16().chain(Some(0)).collect()
     }
 
-    unsafe fn get_dpi_scale(hwnd: isize) -> f32 {
+    unsafe fn get_dpi_scale(hwnd: HWND) -> f32 {
         let dpi = GetDpiForWindow(hwnd);
         if dpi == 0 {
             1.0
@@ -247,16 +246,17 @@ mod platform {
         }
     }
 
-    fn s(base: f32, scale: f32) -> f32 {
+    fn sc(base: f32, scale: f32) -> f32 {
         base * scale
     }
 
-    fn si(base: f32, scale: f32) -> i32 {
+    fn sci(base: f32, scale: f32) -> i32 {
         (base * scale).round() as i32
     }
 
     // ── D2D initialization ──────────────────────────────────
-    fn init_d2d() -> windows::core::Result<(ID2D1Factory, ID2D1DCRenderTarget, IDWriteFactory)> {
+    fn init_d2d(
+    ) -> windows::core::Result<(ID2D1DCRenderTarget, ID2D1RenderTarget, IDWriteFactory)> {
         unsafe {
             let d2d_factory: ID2D1Factory =
                 D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
@@ -272,12 +272,15 @@ mod platform {
                 usage: D2D1_RENDER_TARGET_USAGE_NONE,
                 minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
             };
-            let dc_target = d2d_factory.CreateDCRenderTarget(&props)?;
+            let dc_target: ID2D1DCRenderTarget = d2d_factory.CreateDCRenderTarget(&props)?;
+
+            // Cast to ID2D1RenderTarget for drawing methods
+            let render_target: ID2D1RenderTarget = dc_target.cast()?;
 
             let dwrite_factory: IDWriteFactory =
                 DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
 
-            Ok((d2d_factory, dc_target, dwrite_factory))
+            Ok((dc_target, render_target, dwrite_factory))
         }
     }
 
@@ -294,7 +297,7 @@ mod platform {
         }
 
         // Create memory DC + 32-bit ARGB bitmap
-        let screen_dc = GetDC(0);
+        let screen_dc = GetDC(std::ptr::null_mut());
         let mem_dc = CreateCompatibleDC(screen_dc);
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
@@ -314,9 +317,9 @@ mod platform {
             std::ptr::null_mut(),
             0,
         );
-        if hbitmap == 0 {
+        if hbitmap.is_null() {
             DeleteDC(mem_dc);
-            ReleaseDC(0, screen_dc);
+            ReleaseDC(std::ptr::null_mut(), screen_dc);
             return;
         }
         let old_bmp = SelectObject(mem_dc, hbitmap);
@@ -336,12 +339,12 @@ mod platform {
             SelectObject(mem_dc, old_bmp);
             DeleteObject(hbitmap);
             DeleteDC(mem_dc);
-            ReleaseDC(0, screen_dc);
+            ReleaseDC(std::ptr::null_mut(), screen_dc);
             return;
         }
 
-        let target = &state.dc_target;
-        let sc = state.dpi_scale;
+        let target = &state.render_target;
+        let dpi = state.dpi_scale;
 
         target.BeginDraw();
         target.Clear(Some(&D2D1_COLOR_F {
@@ -352,8 +355,8 @@ mod platform {
         }));
 
         // ── Shadow (subtle dark glow behind the pill) ──
-        let shadow_expand = s(3.0, sc);
-        let shadow_radius = s(BASE_CORNER_RADIUS, sc) + shadow_expand;
+        let shadow_expand = sc(3.0, dpi);
+        let shadow_radius = sc(BASE_CORNER_RADIUS, dpi) + shadow_expand;
         let shadow_rect = D2D1_ROUNDED_RECT {
             rect: D2D_RECT_F {
                 left: -shadow_expand,
@@ -377,7 +380,7 @@ mod platform {
         }
 
         // ── Background rounded pill ──
-        let corner = s(BASE_CORNER_RADIUS, sc);
+        let corner = sc(BASE_CORNER_RADIUS, dpi);
         let bg_rect = D2D1_ROUNDED_RECT {
             rect: D2D_RECT_F {
                 left: 0.0,
@@ -425,17 +428,17 @@ mod platform {
         }
 
         // ── Icon area ──
-        let icon_cx = s(20.0, sc);
+        let icon_cx = sc(20.0, dpi);
         let icon_cy = if state.interim_text.is_empty() {
             h as f32 / 2.0
         } else {
-            s(18.0, sc)
+            sc(18.0, dpi)
         };
 
-        draw_icon(target, state, icon_cx, icon_cy, sc);
+        draw_icon(target, state, icon_cx, icon_cy, dpi);
 
         // ── Text ──
-        draw_text(target, state, w, h, sc);
+        draw_text(target, state, w, h, dpi);
 
         let _ = target.EndDraw(None, None);
 
@@ -469,42 +472,48 @@ mod platform {
         SelectObject(mem_dc, old_bmp);
         DeleteObject(hbitmap);
         DeleteDC(mem_dc);
-        ReleaseDC(0, screen_dc);
+        ReleaseDC(std::ptr::null_mut(), screen_dc);
     }
 
     // ── Icon drawing ────────────────────────────────────────
     unsafe fn draw_icon(
-        target: &ID2D1DCRenderTarget,
+        target: &ID2D1RenderTarget,
         state: &OverlayState,
         cx: f32,
         cy: f32,
-        sc: f32,
+        dpi: f32,
     ) {
         match state.mode {
-            OverlayMode::Waveform => draw_waveform(target, &state.accent_color, state.tick, cx, cy, sc),
-            OverlayMode::Processing => draw_dots(target, &state.accent_color, state.tick, cx, cy, sc),
-            OverlayMode::Success => draw_checkmark(target, &state.accent_color, state.tick, cx, cy, sc),
-            OverlayMode::Error => draw_cross(target, &state.accent_color, cx, cy, sc),
+            OverlayMode::Waveform => {
+                draw_waveform(target, &state.accent_color, state.tick, cx, cy, dpi)
+            }
+            OverlayMode::Processing => {
+                draw_dots(target, &state.accent_color, state.tick, cx, cy, dpi)
+            }
+            OverlayMode::Success => {
+                draw_checkmark(target, &state.accent_color, state.tick, cx, cy, dpi)
+            }
+            OverlayMode::Error => draw_cross(target, &state.accent_color, cx, cy, dpi),
             OverlayMode::None => {}
         }
     }
 
     unsafe fn draw_waveform(
-        target: &ID2D1DCRenderTarget,
+        target: &ID2D1RenderTarget,
         color: &D2D1_COLOR_F,
         tick: u32,
         cx: f32,
         cy: f32,
-        sc: f32,
+        dpi: f32,
     ) {
-        let bar_w = s(BAR_WIDTH, sc);
-        let total_w = BAR_COUNT as f32 * bar_w + (BAR_COUNT as f32 - 1.0) * s(BAR_SPACING, sc);
+        let bar_w = sc(BAR_WIDTH, dpi);
+        let total_w = BAR_COUNT as f32 * bar_w + (BAR_COUNT as f32 - 1.0) * sc(BAR_SPACING, dpi);
         let start_x = cx - total_w / 2.0;
 
         for i in 0..BAR_COUNT {
             let phase = tick as f64 * 0.12 + i as f64 * 1.1;
             let t = (0.5 + 0.5 * phase.sin()) as f32;
-            let h = s(BAR_MIN_H + t * (BAR_MAX_H - BAR_MIN_H), sc);
+            let h = sc(BAR_MIN_H + t * (BAR_MAX_H - BAR_MIN_H), dpi);
             let alpha = 0.55 + 0.45 * t;
 
             let bar_color = D2D1_COLOR_F {
@@ -514,7 +523,7 @@ mod platform {
                 a: alpha,
             };
             if let Ok(brush) = target.CreateSolidColorBrush(&bar_color, None) {
-                let x = start_x + i as f32 * (bar_w + s(BAR_SPACING, sc));
+                let x = start_x + i as f32 * (bar_w + sc(BAR_SPACING, dpi));
                 let y = cy - h / 2.0;
                 let rounded = D2D1_ROUNDED_RECT {
                     rect: D2D_RECT_F {
@@ -532,22 +541,22 @@ mod platform {
     }
 
     unsafe fn draw_dots(
-        target: &ID2D1DCRenderTarget,
+        target: &ID2D1RenderTarget,
         color: &D2D1_COLOR_F,
         tick: u32,
         cx: f32,
         cy: f32,
-        sc: f32,
+        dpi: f32,
     ) {
-        let total_w = (DOT_COUNT as f32 - 1.0) * s(DOT_SPACING, sc);
+        let total_w = (DOT_COUNT as f32 - 1.0) * sc(DOT_SPACING, dpi);
         let start_x = cx - total_w / 2.0;
 
         for i in 0..DOT_COUNT {
             let phase = tick as f64 * 0.15 - i as f64 * 0.9;
             let bounce = phase.sin().max(0.0) as f32;
-            let r = s(DOT_BASE_RADIUS + bounce * 1.5, sc);
+            let r = sc(DOT_BASE_RADIUS + bounce * 1.5, dpi);
             let alpha = 0.35 + 0.65 * bounce;
-            let offset_y = bounce * s(3.0, sc);
+            let offset_y = bounce * sc(3.0, dpi);
 
             let dot_color = D2D1_COLOR_F {
                 r: color.r,
@@ -556,7 +565,7 @@ mod platform {
                 a: alpha,
             };
             if let Ok(brush) = target.CreateSolidColorBrush(&dot_color, None) {
-                let x = start_x + i as f32 * s(DOT_SPACING, sc);
+                let x = start_x + i as f32 * sc(DOT_SPACING, dpi);
                 let ellipse = D2D1_ELLIPSE {
                     point: D2D_POINT_2F {
                         x,
@@ -571,26 +580,26 @@ mod platform {
     }
 
     unsafe fn draw_checkmark(
-        target: &ID2D1DCRenderTarget,
+        target: &ID2D1RenderTarget,
         color: &D2D1_COLOR_F,
         tick: u32,
         cx: f32,
         cy: f32,
-        sc: f32,
+        dpi: f32,
     ) {
         let progress = (tick as f32 / 12.0).min(1.0);
 
         let p0 = D2D_POINT_2F {
-            x: cx - s(6.0, sc),
-            y: cy + s(1.0, sc),
+            x: cx - sc(6.0, dpi),
+            y: cy + sc(1.0, dpi),
         };
         let p1 = D2D_POINT_2F {
-            x: cx - s(1.5, sc),
-            y: cy - s(4.0, sc),
+            x: cx - sc(1.5, dpi),
+            y: cy - sc(4.0, dpi),
         };
         let p2 = D2D_POINT_2F {
-            x: cx + s(7.0, sc),
-            y: cy + s(5.0, sc),
+            x: cx + sc(7.0, dpi),
+            y: cy + sc(5.0, dpi),
         };
 
         let stroke_color = D2D1_COLOR_F {
@@ -600,11 +609,9 @@ mod platform {
             a: 0.95,
         };
         if let Ok(brush) = target.CreateSolidColorBrush(&stroke_color, None) {
-            let stroke_w = s(2.0, sc);
-
-            let factory = &target
-                .GetFactory()
-                .expect("D2D factory");
+            let stroke_w = sc(2.0, dpi);
+            let factory = target.GetFactory().expect("D2D factory");
+            let style = create_round_stroke_style(&factory);
 
             if progress <= 0.4 {
                 let t = progress / 0.4;
@@ -612,45 +619,27 @@ mod platform {
                     x: p0.x + (p1.x - p0.x) * t,
                     y: p0.y + (p1.y - p0.y) * t,
                 };
-                if let Ok(geom) = factory.CreatePathGeometry() {
-                    if let Ok(sink) = geom.Open() {
-                        sink.BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
-                        sink.AddLine(end);
-                        sink.EndFigure(D2D1_FIGURE_END_OPEN);
-                        let _ = sink.Close();
-                        let style = create_round_stroke_style(&factory);
-                        target.DrawGeometry(&geom, &brush, stroke_w, style.as_ref());
-                    }
-                }
+                target.DrawLine(p0, end, &brush, stroke_w, style.as_ref());
             } else {
                 let t = (progress - 0.4) / 0.6;
                 let end = D2D_POINT_2F {
                     x: p1.x + (p2.x - p1.x) * t,
                     y: p1.y + (p2.y - p1.y) * t,
                 };
-                if let Ok(geom) = factory.CreatePathGeometry() {
-                    if let Ok(sink) = geom.Open() {
-                        sink.BeginFigure(p0, D2D1_FIGURE_BEGIN_HOLLOW);
-                        sink.AddLine(p1);
-                        sink.AddLine(end);
-                        sink.EndFigure(D2D1_FIGURE_END_OPEN);
-                        let _ = sink.Close();
-                        let style = create_round_stroke_style(&factory);
-                        target.DrawGeometry(&geom, &brush, stroke_w, style.as_ref());
-                    }
-                }
+                target.DrawLine(p0, p1, &brush, stroke_w, style.as_ref());
+                target.DrawLine(p1, end, &brush, stroke_w, style.as_ref());
             }
         }
     }
 
     unsafe fn draw_cross(
-        target: &ID2D1DCRenderTarget,
+        target: &ID2D1RenderTarget,
         color: &D2D1_COLOR_F,
         cx: f32,
         cy: f32,
-        sc: f32,
+        dpi: f32,
     ) {
-        let arm = s(5.0, sc);
+        let arm = sc(5.0, dpi);
         let stroke_color = D2D1_COLOR_F {
             r: color.r,
             g: color.g,
@@ -658,7 +647,7 @@ mod platform {
             a: 0.95,
         };
         if let Ok(brush) = target.CreateSolidColorBrush(&stroke_color, None) {
-            let stroke_w = s(2.0, sc);
+            let stroke_w = sc(2.0, dpi);
             let factory = target.GetFactory().expect("D2D factory");
             let style = create_round_stroke_style(&factory);
 
@@ -706,27 +695,29 @@ mod platform {
 
     // ── Text drawing ────────────────────────────────────────
     unsafe fn draw_text(
-        target: &ID2D1DCRenderTarget,
+        target: &ID2D1RenderTarget,
         state: &OverlayState,
         w: i32,
         h: i32,
-        sc: f32,
+        dpi: f32,
     ) {
-        let text_left = s(36.0, sc);
-        let pad_right = s(14.0, sc);
+        let text_left = sc(36.0, dpi);
+        let pad_right = sc(14.0, dpi);
+        let font_name_wide = to_wide("Segoe UI");
+        let locale_wide = to_wide("en-us");
 
         // Status text
-        let font_name = to_wide("Segoe UI");
         if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
-            windows::core::PCWSTR(font_name.as_ptr()),
+            windows::core::PCWSTR(font_name_wide.as_ptr()),
             None,
             DWRITE_FONT_WEIGHT_SEMI_BOLD,
             DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL,
-            s(BASE_STATUS_FONT, sc),
-            windows::core::PCWSTR(to_wide("en-us").as_ptr()),
+            sc(BASE_STATUS_FONT, dpi),
+            windows::core::PCWSTR(locale_wide.as_ptr()),
         ) {
             let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            let _ = fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
             let text_color = D2D1_COLOR_F {
                 r: 1.0,
@@ -739,12 +730,12 @@ mod platform {
                 let top = if state.interim_text.is_empty() {
                     0.0
                 } else {
-                    s(4.0, sc)
+                    sc(4.0, dpi)
                 };
                 let bottom = if state.interim_text.is_empty() {
                     h as f32
                 } else {
-                    s(24.0, sc)
+                    sc(24.0, dpi)
                 };
                 let rect = D2D_RECT_F {
                     left: text_left,
@@ -752,8 +743,6 @@ mod platform {
                     right: w as f32 - pad_right,
                     bottom,
                 };
-                // SetParagraphAlignment for vertical centering
-                let _ = fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                 target.DrawText(
                     &status_wide[..status_wide.len() - 1], // exclude null terminator
                     &fmt,
@@ -768,13 +757,13 @@ mod platform {
         // Interim text
         if !state.interim_text.is_empty() {
             if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
-                windows::core::PCWSTR(font_name.as_ptr()),
+                windows::core::PCWSTR(font_name_wide.as_ptr()),
                 None,
                 DWRITE_FONT_WEIGHT_REGULAR,
                 DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
-                s(BASE_INTERIM_FONT, sc),
-                windows::core::PCWSTR(to_wide("en-us").as_ptr()),
+                sc(BASE_INTERIM_FONT, dpi),
+                windows::core::PCWSTR(locale_wide.as_ptr()),
             ) {
                 let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
                 let _ = fmt.SetTrimming(
@@ -793,7 +782,7 @@ mod platform {
                     a: 1.0,
                 };
                 if let Ok(brush) = target.CreateSolidColorBrush(&text_color, None) {
-                    // Show last ~40 chars for long text
+                    // Show tail of long text
                     let display_text = if state.interim_text.chars().count() > 40 {
                         let start = state
                             .interim_text
@@ -802,7 +791,7 @@ mod platform {
                             .nth(39)
                             .map(|(i, _)| i)
                             .unwrap_or(0);
-                        format!("…{}", &state.interim_text[start..])
+                        format!("\u{2026}{}", &state.interim_text[start..])
                     } else {
                         state.interim_text.clone()
                     };
@@ -810,9 +799,9 @@ mod platform {
                     let interim_wide = to_wide(&display_text);
                     let rect = D2D_RECT_F {
                         left: text_left,
-                        top: s(28.0, sc),
+                        top: sc(28.0, dpi),
                         right: w as f32 - pad_right,
-                        bottom: h as f32 - s(4.0, sc),
+                        bottom: h as f32 - sc(4.0, dpi),
                     };
                     target.DrawText(
                         &interim_wide[..interim_wide.len() - 1],
@@ -835,7 +824,7 @@ mod platform {
             *RX.get() = Some(rx);
 
             // Initialize D2D
-            let (d2d_factory, dc_target, dwrite_factory) = match init_d2d() {
+            let (dc_target, render_target, dwrite_factory) = match init_d2d() {
                 Ok(r) => r,
                 Err(e) => {
                     log::error!("overlay: D2D init failed: {e}");
@@ -864,7 +853,11 @@ mod platform {
 
             let window_name = to_wide("Koe");
             let hwnd = CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
+                WS_EX_TOPMOST
+                    | WS_EX_TOOLWINDOW
+                    | WS_EX_LAYERED
+                    | WS_EX_NOACTIVATE
+                    | WS_EX_TRANSPARENT,
                 class_name.as_ptr(),
                 window_name.as_ptr(),
                 WS_POPUP,
@@ -878,7 +871,7 @@ mod platform {
                 std::ptr::null(),
             );
 
-            let dpi = get_dpi_scale(hwnd);
+            let dpi_val = get_dpi_scale(hwnd);
 
             *STATE.get() = Some(OverlayState {
                 status_text: String::new(),
@@ -893,17 +886,17 @@ mod platform {
                 visible: false,
                 hwnd,
                 dismiss_at: None,
-                d2d_factory,
                 dc_target,
+                render_target,
                 dwrite_factory,
                 tick: 0,
                 alpha: 0,
                 target_alpha: 0,
                 pill_x: 0,
                 pill_y: 0,
-                pill_w: si(BASE_PILL_WIDTH, dpi),
-                pill_h: si(BASE_PILL_HEIGHT_SMALL, dpi),
-                dpi_scale: dpi,
+                pill_w: sci(BASE_PILL_WIDTH, dpi_val),
+                pill_h: sci(BASE_PILL_HEIGHT_SMALL, dpi_val),
+                dpi_scale: dpi_val,
             });
 
             SetTimer(hwnd, TIMER_ID, TIMER_INTERVAL_MS, None);
@@ -917,13 +910,13 @@ mod platform {
     }
 
     unsafe extern "system" fn wnd_proc(
-        hwnd: isize,
+        hwnd: HWND,
         msg: u32,
-        wparam: usize,
-        lparam: isize,
-    ) -> isize {
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
         match msg {
-            WM_TIMER if wparam == TIMER_ID => {
+            WM_TIMER if wparam == TIMER_ID as WPARAM => {
                 poll_messages();
                 0
             }
@@ -972,9 +965,6 @@ mod platform {
                         state.status_text = text.to_string();
                         state.accent_color = color;
                         state.mode = mode;
-                        if mode == OverlayMode::Waveform {
-                            // New recording: reset tick for fresh animation
-                        }
                         if !text.is_empty() {
                             reposition_pill(state);
                             show_window(state);
@@ -1044,8 +1034,8 @@ mod platform {
 
     unsafe fn active_monitor_rect() -> RECT {
         let fg = GetForegroundWindow();
-        let monitor = if fg == 0 {
-            MonitorFromWindow(0, MONITOR_DEFAULTTOPRIMARY)
+        let monitor = if fg.is_null() {
+            MonitorFromWindow(std::ptr::null_mut(), MONITOR_DEFAULTTOPRIMARY)
         } else {
             MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)
         };
@@ -1066,26 +1056,25 @@ mod platform {
 
     unsafe fn reposition_pill(state: &mut OverlayState) {
         state.dpi_scale = get_dpi_scale(state.hwnd);
-        let sc = state.dpi_scale;
+        let dpi = state.dpi_scale;
 
-        let w = si(BASE_PILL_WIDTH, sc);
+        let w = sci(BASE_PILL_WIDTH, dpi);
         let h = if state.interim_text.is_empty() {
-            si(BASE_PILL_HEIGHT_SMALL, sc)
+            sci(BASE_PILL_HEIGHT_SMALL, dpi)
         } else {
-            si(BASE_PILL_HEIGHT_LARGE, sc)
+            sci(BASE_PILL_HEIGHT_LARGE, dpi)
         };
 
         let mon = active_monitor_rect();
         let mon_w = mon.right - mon.left;
         let x = mon.left + (mon_w - w) / 2;
-        let y = mon.bottom - h - si(40.0, sc);
+        let y = mon.bottom - h - sci(40.0, dpi);
 
         state.pill_x = x;
         state.pill_y = y;
         state.pill_w = w;
         state.pill_h = h;
 
-        // Move window to cover the area (slightly larger for shadow)
         SetWindowPos(
             state.hwnd,
             HWND_TOPMOST,
