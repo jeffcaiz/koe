@@ -40,18 +40,24 @@ pub fn on_state_changed(state: &str) {
 #[cfg(windows)]
 mod platform {
     use std::ptr;
-    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_FILENAME};
+    use std::thread;
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_FILENAME, SND_SYNC};
 
     /// Encode a &str as a null-terminated UTF-16 Vec.
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    fn play_wav(path: &str) {
-        let w = wide(path);
-        unsafe {
-            PlaySoundW(w.as_ptr(), ptr::null_mut(), SND_FILENAME | SND_ASYNC);
-        }
+    /// Play a wav file on a dedicated thread so it doesn't get cancelled
+    /// by other PlaySoundW calls. SND_SYNC blocks within the thread until
+    /// the sound finishes, isolating it from the main event loop.
+    fn play_wav(path: &'static str) {
+        thread::spawn(move || {
+            let w = wide(path);
+            unsafe {
+                PlaySoundW(w.as_ptr(), ptr::null_mut(), SND_FILENAME | SND_SYNC);
+            }
+        });
     }
 
     pub fn play_start() {
