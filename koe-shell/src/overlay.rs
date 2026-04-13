@@ -125,17 +125,13 @@ mod platform {
     const BASE_CORNER_RADIUS: f32 = 18.0;
     const BASE_SCREEN_H_MARGIN: f32 = 32.0;
     const BASE_BOTTOM_MARGIN: f32 = 40.0;
-    const BASE_STATUS_AREA_HEIGHT: f32 = 28.0; // space for status text row
-    const BASE_TEXT_TOP_PAD: f32 = 4.0;        // padding above interim text
-    const BASE_TEXT_BOTTOM_PAD: f32 = 8.0;     // padding below interim text
     const MAX_VISIBLE_LINES: u32 = 3;
 
     // Font
     const BASE_STATUS_FONT: f32 = 15.0;
-    const BASE_INTERIM_FONT: f32 = 12.5;
+    const BASE_INTERIM_FONT: f32 = 15.0;
 
     // Icon area
-    const BASE_ICON_AREA: f32 = 36.0;
     const BASE_TEXT_LEFT: f32 = 40.0;
     const BASE_PAD_RIGHT: f32 = 14.0;
 
