@@ -678,7 +678,7 @@ mod platform {
                     sc(BASE_INTERIM_FONT, dpi), windows::core::PCWSTR(locale_wide.as_ptr()),
                 ) {
                     let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-                    if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.92, g: 0.92, b: 0.92, a: 0.92 }, None) {
+                    if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 0.92 }, None) {
                         let interim_wide = to_wide(&state.interim_text);
                         let text_w = rect.right - rect.left;
                         let viewport_h = rect.bottom - rect.top;
