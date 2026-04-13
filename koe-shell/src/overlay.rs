@@ -69,6 +69,7 @@ mod platform {
     const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
 
     #[repr(C)]
+    #[allow(non_snake_case)]
     struct MONITORINFO {
         cbSize: u32,
         rcMonitor: RECT,
@@ -99,8 +100,17 @@ mod platform {
         dismiss_at: Option<std::time::Instant>,
     }
 
-    static mut STATE: Option<OverlayState> = None;
-    static mut RX: Option<mpsc::Receiver<OverlayMsg>> = None;
+    /// Single-thread cell usable as a `static`. Only accessed from the overlay thread.
+    struct ThreadLocal<T>(std::cell::UnsafeCell<T>);
+    unsafe impl<T> Sync for ThreadLocal<T> {}
+    impl<T> ThreadLocal<T> {
+        const fn new(val: T) -> Self { Self(std::cell::UnsafeCell::new(val)) }
+        /// # Safety: must only be called from the overlay thread.
+        unsafe fn get(&self) -> &mut T { &mut *self.0.get() }
+    }
+
+    static STATE: ThreadLocal<Option<OverlayState>> = ThreadLocal::new(None);
+    static RX: ThreadLocal<Option<mpsc::Receiver<OverlayMsg>>> = ThreadLocal::new(None);
 
     /// Returns (status_text, dot_color_bgr).
     fn status_for_state(state: &str) -> (&str, u32) {
@@ -137,7 +147,7 @@ mod platform {
             // Declare per-monitor DPI awareness so we get real pixel sizes
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-            RX = Some(rx);
+            *RX.get() = Some(rx);
 
             let class_name = to_wide("KoeOverlay");
             let hinstance = GetModuleHandleW(std::ptr::null());
@@ -183,7 +193,7 @@ mod platform {
             let rgn = CreateRoundRectRgn(0, 0, BASE_PILL_WIDTH as i32, BASE_PILL_HEIGHT_SMALL as i32, BASE_CORNER_RADIUS as i32, BASE_CORNER_RADIUS as i32);
             SetWindowRgn(hwnd, rgn, 1);
 
-            STATE = Some(OverlayState {
+            *STATE.get() = Some(OverlayState {
                 status_text: String::new(),
                 interim_text: String::new(),
                 dot_color: 0x00808080,
@@ -214,7 +224,7 @@ mod platform {
     }
 
     unsafe fn poll_messages() {
-        let rx = match RX.as_ref() {
+        let rx = match RX.get().as_ref() {
             Some(r) => r,
             None => return,
         };
@@ -222,7 +232,7 @@ mod platform {
         let mut needs_repaint = false;
 
         while let Ok(msg) = rx.try_recv() {
-            let state = STATE.as_mut().unwrap();
+            let state = STATE.get().as_mut().unwrap();
             match msg {
                 OverlayMsg::UpdateState(s) => {
                     let (text, color) = status_for_state(&s);
@@ -268,7 +278,7 @@ mod platform {
             }
         }
 
-        let state = STATE.as_mut().unwrap();
+        let state = STATE.get().as_mut().unwrap();
         if let Some(dismiss_at) = state.dismiss_at {
             if std::time::Instant::now() >= dismiss_at {
                 state.dismiss_at = None;
@@ -352,7 +362,7 @@ mod platform {
         let mut ps: PAINTSTRUCT = std::mem::zeroed();
         let hdc = BeginPaint(hwnd, &mut ps);
 
-        let state = match STATE.as_ref() {
+        let state = match STATE.get().as_ref() {
             Some(s) => s,
             None => { EndPaint(hwnd, &ps); return; }
         };
