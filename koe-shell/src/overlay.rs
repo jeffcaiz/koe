@@ -590,17 +590,19 @@ mod platform {
     ) {
         let progress = (tick as f32 / 12.0).min(1.0);
 
+        // Checkmark ✓ — in D2D coords Y increases downward:
+        // left-mid → down to bottom → up to top-right
         let p0 = D2D_POINT_2F {
             x: cx - sc(6.0, dpi),
-            y: cy + sc(1.0, dpi),
+            y: cy - sc(1.0, dpi),
         };
         let p1 = D2D_POINT_2F {
             x: cx - sc(1.5, dpi),
-            y: cy - sc(4.0, dpi),
+            y: cy + sc(4.0, dpi),
         };
         let p2 = D2D_POINT_2F {
             x: cx + sc(7.0, dpi),
-            y: cy + sc(5.0, dpi),
+            y: cy - sc(5.0, dpi),
         };
 
         let stroke_color = D2D1_COLOR_F {
