@@ -209,28 +209,28 @@ mod platform {
         };
         match state {
             s if s.starts_with("recording") => {
-                ("Listening...", OverlayMode::Waveform, color(1.0, 0.25, 0.25))
+                ("Listening\u{2026}", OverlayMode::Waveform, color(1.0, 0.32, 0.32))
             }
-            "connecting_asr" => (
-                "Connecting...",
+            s if s.starts_with("connecting_asr") => (
+                "Connecting\u{2026}",
                 OverlayMode::Processing,
-                color(1.0, 0.8, 0.25),
+                color(1.0, 0.78, 0.28),
             ),
-            "finalizing_asr" => (
-                "Recognizing...",
+            s if s.starts_with("finalizing_asr") => (
+                "Recognizing\u{2026}",
                 OverlayMode::Processing,
-                color(0.25, 0.8, 1.0),
+                color(0.35, 0.78, 1.0),
             ),
             "correcting" => (
-                "Thinking...",
+                "Thinking\u{2026}",
                 OverlayMode::Processing,
-                color(0.38, 0.56, 1.0),
+                color(0.55, 0.6, 1.0),
             ),
             s if s.starts_with("preparing_paste") || s == "pasting" => {
-                ("Done!", OverlayMode::Success, color(0.38, 0.87, 0.38))
+                ("Pasting\u{2026}", OverlayMode::Success, color(0.3, 0.85, 0.45))
             }
-            "failed" | "error" => ("Error", OverlayMode::Error, color(1.0, 0.25, 0.25)),
-            _ => ("", OverlayMode::None, color(0.5, 0.5, 0.5)),
+            "failed" | "error" => ("Error", OverlayMode::Error, color(1.0, 0.32, 0.32)),
+            _ => ("Working\u{2026}", OverlayMode::Processing, color(0.35, 0.78, 1.0)),
         }
     }
 
