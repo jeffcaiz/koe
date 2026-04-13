@@ -263,7 +263,9 @@ pub struct LlmProfilesPayload {
 pub struct LlmProfileConfig {
     #[serde(default)]
     pub name: String,
-    /// LLM provider: "openai" or "mlx".
+    /// LLM provider: "openai", "apfel", or "mlx". "apfel" is treated as an
+    /// OpenAI-compatible provider at runtime but tracked separately so the UI
+    /// can show it as a distinct option with Apple Foundation Models defaults.
     #[serde(default = "default_llm_provider")]
     pub provider: String,
     #[serde(default)]
@@ -467,11 +469,6 @@ pub struct HotkeySection {
     /// Trigger mode: "hold" (press-and-hold, default) or "toggle" (tap to start/stop).
     #[serde(default = "default_trigger_mode")]
     pub trigger_mode: String,
-
-    /// Modifier that inverts whether the current session uses LLM correction.
-    /// Options: "control", "option", "command", "shift", "fn", "none".
-    #[serde(default = "default_llm_invert_modifier")]
-    pub llm_invert_modifier: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -506,14 +503,6 @@ impl HotkeySection {
         Self::normalize_trigger_key_name(&self.trigger_key)
     }
 
-    pub fn normalized_llm_invert_modifier(&self) -> String {
-        Self::normalize_llm_invert_modifier_name(&self.llm_invert_modifier)
-    }
-
-    pub fn llm_invert_modifier_flag(&self) -> u64 {
-        Self::llm_invert_modifier_flag_for_name(&self.normalized_llm_invert_modifier())
-    }
-
     fn normalize_trigger_key_name(value: &str) -> String {
         match value {
             "left_option" | "right_option" | "left_command" | "right_command" | "left_control"
@@ -525,22 +514,6 @@ impl HotkeySection {
                 Self::parse_hotkey_combo(value).unwrap().normalized_value
             }
             _ => default_trigger_key(),
-        }
-    }
-
-    fn normalize_llm_invert_modifier_name(value: &str) -> String {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "control" | "option" | "command" | "shift" | "fn" | "none" => {
-                value.trim().to_ascii_lowercase()
-            }
-            _ => default_llm_invert_modifier(),
-        }
-    }
-
-    fn llm_invert_modifier_flag_for_name(value: &str) -> u64 {
-        match value {
-            "none" => 0,
-            modifier => Self::combo_modifier_flag(modifier).unwrap_or(0x0004_0000),
         }
     }
 
@@ -791,7 +764,7 @@ fn default_llm_profiles() -> BTreeMap<String, LlmProfileConfig> {
         "apfel".into(),
         LlmProfileConfig {
             name: "APFEL".into(),
-            provider: "openai".into(),
+            provider: "apfel".into(),
             base_url: "http://127.0.0.1:11434/v1".into(),
             api_key: String::new(),
             model: "apple-foundationmodel".into(),
@@ -846,10 +819,6 @@ fn default_trigger_key() -> String {
 
 fn default_trigger_mode() -> String {
     "hold".into()
-}
-
-fn default_llm_invert_modifier() -> String {
-    "control".into()
 }
 
 fn default_user_prompt_path() -> String {
@@ -1600,9 +1569,9 @@ llm:
       no_reasoning_control: "reasoning_effort"
     apfel:
       name: "APFEL"
-      provider: "openai"
+      provider: "apfel"
       base_url: "http://127.0.0.1:11434/v1"
-      api_key: ""
+      api_key: ""           # optional; leave blank to send no Authorization header
       model: "apple-foundationmodel"
       chat_completions_path: "/chat/completions"  # customize for non-standard OpenAI-compatible endpoints
       max_token_parameter: "max_tokens"
@@ -1626,7 +1595,6 @@ hotkey:
   # 也可以填 macOS keycode 数字来使用非修饰键，例如 122 (F1)、120 (F2)、99 (F3) 等
   trigger_key: "fn"
   trigger_mode: "hold"                 # hold | toggle
-  llm_invert_modifier: "control"       # control | option | command | shift | fn | none
 
 overlay:
   font_family: "system"
@@ -1689,40 +1657,8 @@ mod tests {
             trigger_key: "nonexistent".into(),
             cancel_key: "left_option".into(),
             trigger_mode: "hold".into(),
-            llm_invert_modifier: "control".into(),
         };
         assert_eq!(h.normalized_trigger_key(), "fn");
-    }
-
-    #[test]
-    fn default_llm_invert_modifier_is_control() {
-        let config = Config::default();
-        assert_eq!(config.hotkey.normalized_llm_invert_modifier(), "control");
-        assert_eq!(config.hotkey.llm_invert_modifier_flag(), 0x0004_0000);
-    }
-
-    #[test]
-    fn invalid_llm_invert_modifier_falls_back_to_control() {
-        let h = HotkeySection {
-            trigger_key: "fn".into(),
-            cancel_key: "".into(),
-            trigger_mode: "hold".into(),
-            llm_invert_modifier: "caps_lock".into(),
-        };
-        assert_eq!(h.normalized_llm_invert_modifier(), "control");
-        assert_eq!(h.llm_invert_modifier_flag(), 0x0004_0000);
-    }
-
-    #[test]
-    fn none_llm_invert_modifier_resolves_to_zero_flag() {
-        let h = HotkeySection {
-            trigger_key: "fn".into(),
-            cancel_key: "".into(),
-            trigger_mode: "hold".into(),
-            llm_invert_modifier: "none".into(),
-        };
-        assert_eq!(h.normalized_llm_invert_modifier(), "none");
-        assert_eq!(h.llm_invert_modifier_flag(), 0);
     }
 
     #[test]
@@ -1735,7 +1671,6 @@ mod tests {
                 trigger_key: "0x7A".into(),
                 cancel_key: "".into(),
                 trigger_mode: "hold".into(),
-                llm_invert_modifier: "control".into(),
             },
             ..Config::default()
         };
@@ -1762,7 +1697,6 @@ mod tests {
             trigger_key: "shift+cmd+49".into(),
             cancel_key: "command+shift+49".into(),
             trigger_mode: "hold".into(),
-            llm_invert_modifier: "control".into(),
         };
         assert_eq!(h.normalized_trigger_key(), "command+shift+49");
     }
@@ -1773,7 +1707,6 @@ mod tests {
             trigger_key: "cmd+shift+49".into(),
             cancel_key: "option+53".into(),
             trigger_mode: "hold".into(),
-            llm_invert_modifier: "control".into(),
         };
         let resolved = h.resolve();
 
@@ -1835,7 +1768,7 @@ mod tests {
         assert!(llm.profiles.contains_key("mlx"));
 
         let apfel = llm.profiles.get("apfel").unwrap();
-        assert_eq!(apfel.provider, "openai");
+        assert_eq!(apfel.provider, "apfel");
         assert_eq!(apfel.base_url, "http://127.0.0.1:11434/v1");
         assert_eq!(apfel.api_key, "");
         assert_eq!(apfel.model, "apple-foundationmodel");
@@ -1860,7 +1793,7 @@ mod tests {
         let active = llm.active_profile_config().unwrap();
 
         assert_eq!(active.id, "apfel");
-        assert_eq!(active.provider, "openai");
+        assert_eq!(active.provider, "apfel");
         assert_eq!(active.base_url, "http://127.0.0.1:11434/v1");
         assert_eq!(active.api_key, "");
         assert_eq!(active.model, "apple-foundationmodel");

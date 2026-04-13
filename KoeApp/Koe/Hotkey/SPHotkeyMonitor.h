@@ -2,9 +2,9 @@
 
 /// Delegate protocol for hotkey events
 @protocol SPHotkeyMonitorDelegate <NSObject>
-- (void)hotkeyMonitorDidDetectHoldStartWithLlmInversion:(BOOL)llmInverted;
+- (void)hotkeyMonitorDidDetectHoldStart;
 - (void)hotkeyMonitorDidDetectHoldEnd;
-- (void)hotkeyMonitorDidDetectTapStartWithLlmInversion:(BOOL)llmInverted;
+- (void)hotkeyMonitorDidDetectTapStart;
 - (void)hotkeyMonitorDidDetectTapEnd;
 @end
 
@@ -20,9 +20,6 @@ typedef NS_ENUM(uint8_t, SPHotkeyMatchKind) {
 
 /// Trigger mode: 0 = hold (short press ignored), 1 = toggle (tap to start/stop).
 @property (nonatomic, assign) uint8_t triggerMode;
-
-/// Modifier flag that inverts LLM correction for the current session. 0 disables inversion.
-@property (nonatomic, assign) NSUInteger llmInvertModifierFlag;
 
 /// Primary key code to monitor (default: 63 = Fn/Globe)
 @property (nonatomic, assign) NSInteger targetKeyCode;

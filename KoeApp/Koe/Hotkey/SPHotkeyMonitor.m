@@ -25,18 +25,16 @@ typedef NS_ENUM(NSInteger, SPHotkeyState) {
 @property (nonatomic, assign, readwrite) BOOL canConsumeGlobalKeyEvents;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *suppressedNumberKeyCodes;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *suppressedHotkeyKeyCodes;
-@property (nonatomic, assign) BOOL pendingLlmInvertModifierActive;
 
 - (void)handleFlagsChangedEvent:(CGEventRef)event;
 - (BOOL)handleNSEvent:(NSEvent *)event;
 - (BOOL)isTargetKeyCode:(NSInteger)keyCode;
 - (BOOL)isModifierOnlyMatchKind:(uint8_t)matchKind;
 - (BOOL)keyModifiers:(NSUInteger)flags matchRequiredModifiers:(NSUInteger)requiredFlags;
-- (BOOL)isLlmInvertModifierActiveForFlags:(NSUInteger)flags;
 - (BOOL)isRecordingState;
 - (BOOL)handleNumberKeyWithKeyCode:(NSInteger)keyCode;
 - (BOOL)consumeSuppressedNumberKeyForKeyCode:(NSInteger)keyCode isKeyUp:(BOOL)isKeyUp;
-- (void)handleTriggerDownWithModifierFlags:(NSUInteger)flags;
+- (void)handleTriggerDown;
 - (void)handleTriggerUp;
 
 @end
@@ -125,15 +123,13 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
              (type == kCGEventKeyUp && suppressedTriggerKey));
 
         if (handlesModifierOnlyTrigger || handlesKeyDownMatchedTrigger) {
-            CGEventFlags flags = CGEventGetFlags(event);
-            NSLog(@"[Koe] Key event: type=%d keyCode=%ld flags=0x%llx",
-                  type, (long)keyCode, (unsigned long long)flags);
+            NSLog(@"[Koe] Key event: type=%d keyCode=%ld", type, (long)keyCode);
             BOOL isDown = (type == kCGEventKeyDown);
             if (isDown != monitor.triggerDown) {
                 monitor.triggerDown = isDown;
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (isDown) {
-                        [monitor handleTriggerDownWithModifierFlags:flags];
+                        [monitor handleTriggerDown];
                     } else {
                         [monitor handleTriggerUp];
                     }
@@ -171,7 +167,6 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
         _altKeyCode = 179;         // Globe key on newer keyboards
         _targetModifierFlag = 0x00800000; // NX_SECONDARYFNMASK
         _targetMatchKind = SPHotkeyMatchKindModifierOnly;
-        _llmInvertModifierFlag = NSEventModifierFlagControl;
         _canConsumeGlobalKeyEvents = NO;
         _suppressedNumberKeyCodes = [NSMutableSet set];
         _suppressedHotkeyKeyCodes = [NSMutableSet set];
@@ -270,16 +265,7 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
 
 - (BOOL)keyModifiers:(NSUInteger)flags matchRequiredModifiers:(NSUInteger)requiredFlags {
     NSUInteger relevantFlags = flags & SPHotkeyRelevantModifierMask;
-    if (relevantFlags == requiredFlags) return YES;
-    if (self.llmInvertModifierFlag == 0) return NO;
-
-    NSUInteger withoutInvertModifier = relevantFlags & ~self.llmInvertModifierFlag;
-    return withoutInvertModifier == requiredFlags;
-}
-
-- (BOOL)isLlmInvertModifierActiveForFlags:(NSUInteger)flags {
-    return self.llmInvertModifierFlag != 0 &&
-           (flags & self.llmInvertModifierFlag) == self.llmInvertModifierFlag;
+    return relevantFlags == requiredFlags;
 }
 
 - (BOOL)isRecordingState {
@@ -336,7 +322,7 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
             if (keyNow != self.triggerDown) {
                 self.triggerDown = keyNow;
                 if (keyNow) {
-                    [self handleTriggerDownWithModifierFlags:flags];
+                    [self handleTriggerDown];
                 } else {
                     [self handleTriggerUp];
                 }
@@ -371,7 +357,7 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
             if (isDown != self.triggerDown) {
                 self.triggerDown = isDown;
                 if (isDown) {
-                    [self handleTriggerDownWithModifierFlags:flags];
+                    [self handleTriggerDown];
                 } else {
                     [self handleTriggerUp];
                 }
@@ -407,7 +393,6 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
 
     [self cancelHoldTimer];
     self.state = SPHotkeyStateIdle;
-    self.pendingLlmInvertModifierActive = NO;
     self.canConsumeGlobalKeyEvents = NO;
     [self.suppressedNumberKeyCodes removeAllObjects];
     [self.suppressedHotkeyKeyCodes removeAllObjects];
@@ -441,7 +426,7 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
 
     if (triggerNow) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self handleTriggerDownWithModifierFlags:(NSUInteger)flags];
+            [self handleTriggerDown];
         });
     } else {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -450,12 +435,11 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
     }
 }
 
-- (void)handleTriggerDownWithModifierFlags:(NSUInteger)flags {
+- (void)handleTriggerDown {
     if (!self.running) return;
     NSLog(@"[Koe] Trigger DOWN (state=%ld)", (long)self.state);
     switch (self.state) {
         case SPHotkeyStateIdle:
-            self.pendingLlmInvertModifierActive = [self isLlmInvertModifierActiveForFlags:flags];
             self.state = SPHotkeyStatePending;
             [self startHoldTimer];
             break;
@@ -479,10 +463,9 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
             if (self.triggerMode == 1) {
                 // Toggle mode: short press starts recording
                 self.state = SPHotkeyStateRecordingToggle;
-                [self.delegate hotkeyMonitorDidDetectTapStartWithLlmInversion:self.pendingLlmInvertModifierActive];
+                [self.delegate hotkeyMonitorDidDetectTapStart];
             } else {
                 // Hold mode: short press is ignored
-                self.pendingLlmInvertModifierActive = NO;
                 self.state = SPHotkeyStateIdle;
             }
             break;
@@ -493,7 +476,6 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
             break;
 
         case SPHotkeyStateConsumeKeyUp:
-            self.pendingLlmInvertModifierActive = NO;
             self.state = SPHotkeyStateIdle;
             break;
 
@@ -520,7 +502,7 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
 - (void)holdTimerFired {
     if (self.state == SPHotkeyStatePending) {
         self.state = SPHotkeyStateRecordingHold;
-        [self.delegate hotkeyMonitorDidDetectHoldStartWithLlmInversion:self.pendingLlmInvertModifierActive];
+        [self.delegate hotkeyMonitorDidDetectHoldStart];
     }
 }
 
@@ -528,7 +510,6 @@ static CGEventRef hotkeyEventCallback(CGEventTapProxy proxy,
     [self cancelHoldTimer];
     self.triggerDown = NO;
     self.state = SPHotkeyStateIdle;
-    self.pendingLlmInvertModifierActive = NO;
     [self.suppressedNumberKeyCodes removeAllObjects];
     [self.suppressedHotkeyKeyCodes removeAllObjects];
 }

@@ -31,6 +31,30 @@ impl TranscriptAggregator {
         }
     }
 
+    /// Live preview that combines committed final text with the in-progress
+    /// interim. After a pause, providers like DoubaoIME emit `Interim` events
+    /// containing only the new segment, so showing `interim_text` alone would
+    /// hide previously-finalized sentences. Merge them with the same
+    /// overlap-trimming logic used for final segments.
+    pub fn live_preview(&self) -> String {
+        if self.final_text.is_empty() {
+            return self.interim_text.clone();
+        }
+        if self.interim_text.is_empty() {
+            return self.final_text.clone();
+        }
+        if self.interim_text.starts_with(&self.final_text) {
+            return self.interim_text.clone();
+        }
+        if self.final_text.starts_with(&self.interim_text) {
+            return self.final_text.clone();
+        }
+        let overlap = longest_overlap(&self.final_text, &self.interim_text);
+        let mut out = self.final_text.clone();
+        out.push_str(&self.interim_text[overlap..]);
+        out
+    }
+
     /// Update with a definite result from two-pass recognition.
     pub fn update_definite(&mut self, text: &str) {
         if !text.is_empty() {
@@ -40,16 +64,35 @@ impl TranscriptAggregator {
         }
     }
 
-    /// Update with a final result (appends to final text).
+    /// Update with a final result.
+    ///
+    /// Providers like DoubaoIME have ambiguous `Final` semantics: within a
+    /// single utterance `Final` is the best full transcript so far, but after
+    /// a speech pause the server starts a new segment and may either send only
+    /// the new content or replay earlier content. Neither pure replace nor
+    /// pure append is correct — we merge by prefix / suffix-overlap instead.
     pub fn update_final(&mut self, text: &str) {
         self.has_final = true;
-        if !text.is_empty() {
-            if !self.final_text.is_empty() {
-                self.final_text.push_str(text);
-            } else {
-                self.final_text = text.to_string();
-            }
+        if text.is_empty() {
+            return;
         }
+        if self.final_text.is_empty() {
+            self.final_text = text.to_string();
+        } else if text.starts_with(&self.final_text) {
+            // New final is a refreshed full transcript of the same utterance.
+            self.final_text = text.to_string();
+        } else if self.final_text.starts_with(text) {
+            // Stale replay of earlier content — ignore.
+            return;
+        } else {
+            // New segment: strip the longest overlap between the existing tail
+            // and the incoming head so we don't duplicate boundary characters.
+            let overlap = longest_overlap(&self.final_text, text);
+            self.final_text.push_str(&text[overlap..]);
+        }
+        // The segment this interim was tracking is now finalized; clear it so
+        // the next segment's live preview starts clean.
+        self.interim_text.clear();
     }
 
     /// Get the best available text.
@@ -90,4 +133,17 @@ impl Default for TranscriptAggregator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Longest k such that `tail.ends_with(&head[..k])`, aligned to char boundaries.
+fn longest_overlap(tail: &str, head: &str) -> usize {
+    let max = tail.len().min(head.len());
+    let mut k = max;
+    while k > 0 {
+        if head.is_char_boundary(k) && tail.is_char_boundary(tail.len() - k) && tail.as_bytes()[tail.len() - k..] == head.as_bytes()[..k] {
+            return k;
+        }
+        k -= 1;
+    }
+    0
 }
