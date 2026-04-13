@@ -234,6 +234,10 @@ mod platform {
         // Dynamic width — session-monotonic
         session_max_w: f32,
 
+        // Text accumulation across ASR segments
+        committed_text: String,  // finalized segments concatenated
+        current_segment: String, // current ASR segment interim
+
         // Recording ripple
         ripple_tick: Option<u32>,
 
@@ -519,7 +523,7 @@ mod platform {
             let progress = rt as f32 / RIPPLE_DURATION_TICKS as f32;
             if progress <= 1.0 {
                 let icon_cx = sc(20.0, dpi);
-                let icon_cy = if state.interim_text.is_empty() { h as f32 / 2.0 } else { sc(18.0, dpi) };
+                let icon_cy = h as f32 / 2.0;
                 let max_r = sc(18.0, dpi);
                 let r = sc(6.0, dpi) + (max_r - sc(6.0, dpi)) * progress;
                 let alpha = 0.22 * (1.0 - progress) * (if progress < 0.3 { progress / 0.3 } else { 1.0 });
@@ -533,9 +537,9 @@ mod platform {
             }
         }
 
-        // ── Icon ──
+        // ── Icon (always vertically centered) ──
         let icon_cx = sc(20.0, dpi);
-        let icon_cy = if state.interim_text.is_empty() { h as f32 / 2.0 } else { sc(18.0, dpi) };
+        let icon_cy = h as f32 / 2.0;
         draw_icon(target, state, icon_cx, icon_cy, dpi);
 
         // ── Text ──
@@ -655,57 +659,33 @@ mod platform {
         let pad_right = sc(BASE_PAD_RIGHT, dpi);
         let font_name_wide = to_wide("Segoe UI");
         let locale_wide = to_wide("en-us");
+        let top_pad = sc(8.0, dpi);
+        let bottom_pad = sc(8.0, dpi);
 
-        // Status text
-        if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
-            windows::core::PCWSTR(font_name_wide.as_ptr()), None,
-            DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            sc(BASE_STATUS_FONT, dpi), windows::core::PCWSTR(locale_wide.as_ptr()),
-        ) {
-            let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            let _ = fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 0.92 }, None) {
-                let status_wide = to_wide(&state.status_text);
-                let (top, bottom) = if state.interim_text.is_empty() {
-                    (0.0, h as f32)
-                } else {
-                    (sc(4.0, dpi), sc(24.0, dpi))
-                };
-                target.DrawText(
-                    &status_wide[..status_wide.len() - 1], &fmt,
-                    &D2D_RECT_F { left: text_left, top, right: w as f32 - pad_right, bottom },
-                    &brush, D2D1_DRAW_TEXT_OPTIONS_CLIP | D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
-                    DWRITE_MEASURING_MODE_NATURAL,
-                );
-            }
-        }
-
-        // Interim text (with optional diff coloring)
         if !state.interim_text.is_empty() {
+            // ── Interim text only (no status text) ──
             let rect = D2D_RECT_F {
-                left: text_left, top: sc(28.0, dpi),
-                right: w as f32 - pad_right, bottom: h as f32 - sc(4.0, dpi),
+                left: text_left, top: top_pad,
+                right: w as f32 - pad_right, bottom: h as f32 - bottom_pad,
             };
 
             if let Some(ref diff) = state.diff_entries {
-                // Draw diff-colored text
                 let progress = if state.diff_total_steps > 0 {
                     state.diff_step as f32 / state.diff_total_steps as f32
                 } else { 0.0 };
                 draw_diff_text(target, &state.dwrite_factory, diff, progress, &rect, dpi);
             } else {
-                // Normal interim text — word-wrapped, scroll to bottom
+                // Word-wrapped, scroll to bottom
                 if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
                     windows::core::PCWSTR(font_name_wide.as_ptr()), None,
                     DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                     sc(BASE_INTERIM_FONT, dpi), windows::core::PCWSTR(locale_wide.as_ptr()),
                 ) {
                     let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-                    if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.69, g: 0.69, b: 0.69, a: 1.0 }, None) {
+                    if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.92, g: 0.92, b: 0.92, a: 0.92 }, None) {
                         let interim_wide = to_wide(&state.interim_text);
                         let text_w = rect.right - rect.left;
                         let viewport_h = rect.bottom - rect.top;
-                        // Create layout to measure full height
                         if let Ok(layout) = state.dwrite_factory.CreateTextLayout(
                             &interim_wide[..interim_wide.len() - 1], &fmt, text_w.max(1.0), 100000.0,
                         ) {
@@ -713,7 +693,6 @@ mod platform {
                             let total_h = if layout.GetMetrics(&mut metrics).is_ok() {
                                 metrics.height
                             } else { viewport_h };
-                            // Scroll to bottom: offset so last lines are visible
                             let y_scroll = (total_h - viewport_h).max(0.0);
                             target.PushAxisAlignedClip(&rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                             let origin = D2D_POINT_2F { x: rect.left, y: rect.top - y_scroll };
@@ -721,6 +700,25 @@ mod platform {
                             target.PopAxisAlignedClip();
                         }
                     }
+                }
+            }
+        } else {
+            // ── Status text only (vertically centered) ──
+            if let Ok(fmt) = state.dwrite_factory.CreateTextFormat(
+                windows::core::PCWSTR(font_name_wide.as_ptr()), None,
+                DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                sc(BASE_STATUS_FONT, dpi), windows::core::PCWSTR(locale_wide.as_ptr()),
+            ) {
+                let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                let _ = fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                if let Ok(brush) = target.CreateSolidColorBrush(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 0.92 }, None) {
+                    let status_wide = to_wide(&state.status_text);
+                    target.DrawText(
+                        &status_wide[..status_wide.len() - 1], &fmt,
+                        &D2D_RECT_F { left: text_left, top: 0.0, right: w as f32 - pad_right, bottom: h as f32 },
+                        &brush, D2D1_DRAW_TEXT_OPTIONS_CLIP | D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
+                        DWRITE_MEASURING_MODE_NATURAL,
+                    );
                 }
             }
         }
@@ -845,6 +843,8 @@ mod platform {
                 pill_h: sci(BASE_PILL_HEIGHT_SMALL, dpi_val),
                 dpi_scale: dpi_val,
                 session_max_w: 0.0,
+                committed_text: String::new(),
+                current_segment: String::new(),
                 ripple_tick: None,
                 diff_entries: None, diff_step: 0, diff_total_steps: 0,
                 diff_final_text: String::new(),
@@ -894,7 +894,10 @@ mod platform {
                         state.accent_color = color;
                         state.mode = mode;
                         state.tick = 0;
+                        // Hide accumulated text, show only icon + status
                         state.interim_text.clear();
+                        state.committed_text.clear();
+                        state.current_segment.clear();
                         state.diff_entries = None;
                         reposition_pill(state);
                         show_window(state);
@@ -905,10 +908,20 @@ mod platform {
                         state.mode = mode;
                         state.diff_entries = None;
 
-                        // New recording session: reset session width & start ripple
+                        // New recording session: reset accumulation & start ripple
                         if mode == OverlayMode::Waveform && !was_recording {
                             state.session_max_w = 0.0;
+                            state.committed_text.clear();
+                            state.current_segment.clear();
+                            state.interim_text.clear();
                             state.ripple_tick = Some(0);
+                        }
+
+                        // Non-recording states: hide text, show only icon + status
+                        if mode != OverlayMode::Waveform {
+                            state.interim_text.clear();
+                            state.committed_text.clear();
+                            state.current_segment.clear();
                         }
 
                         if !text.is_empty() {
@@ -920,7 +933,24 @@ mod platform {
                 }
                 OverlayMsg::UpdateInterimText(text) => {
                     let state = STATE.get().as_mut().unwrap();
-                    state.interim_text = text;
+                    if text.is_empty() { continue; }
+
+                    // Detect ASR segment reset: new text is much shorter than
+                    // current segment → the ASR restarted its buffer after a pause.
+                    let cur_len = state.current_segment.chars().count();
+                    let new_len = text.chars().count();
+                    if cur_len > 3 && new_len < cur_len / 2 {
+                        // Commit previous segment
+                        state.committed_text.push_str(&state.current_segment);
+                    }
+
+                    state.current_segment = text;
+                    // Display = all committed segments + current segment
+                    state.interim_text = if state.committed_text.is_empty() {
+                        state.current_segment.clone()
+                    } else {
+                        format!("{}{}", state.committed_text, state.current_segment)
+                    };
                     state.diff_entries = None;
                     reposition_pill(state);
                     needs_render = true;
@@ -1090,14 +1120,16 @@ mod platform {
         let h = if state.interim_text.is_empty() {
             sc(BASE_PILL_HEIGHT_SMALL, dpi)
         } else {
-            // Measure wrapped interim text height
+            // Measure wrapped text height — full pill is text only (no status row)
             let text_area_w = w - sc(BASE_TEXT_LEFT, dpi) - sc(BASE_PAD_RIGHT, dpi);
             let (total_h, line_h) = measure_text_height(
                 &state.dwrite_factory, &state.interim_text, BASE_INTERIM_FONT, text_area_w, dpi,
             );
             let max_text_h = line_h * MAX_VISIBLE_LINES as f32;
             let clamped_h = total_h.min(max_text_h).max(line_h);
-            sc(BASE_STATUS_AREA_HEIGHT, dpi) + sc(BASE_TEXT_TOP_PAD, dpi) + clamped_h + sc(BASE_TEXT_BOTTOM_PAD, dpi)
+            let top_pad = sc(8.0, dpi);
+            let bottom_pad = sc(8.0, dpi);
+            (top_pad + clamped_h + bottom_pad).max(sc(BASE_PILL_HEIGHT_SMALL, dpi))
         };
 
         let wi = w.round() as i32;
