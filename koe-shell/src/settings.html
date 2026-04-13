@@ -102,23 +102,6 @@
   .toast.show { opacity: 1; }
   .toast.success { background: var(--success); }
   .toast.error { background: var(--error); }
-  .yaml-editor { margin-top: 16px; }
-  .yaml-editor textarea {
-    width: 100%; min-height: 300px; padding: 12px; background: var(--bg);
-    border: 1px solid var(--border); border-radius: 4px; color: var(--text);
-    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-    font-size: 13px; line-height: 1.5; resize: vertical; tab-size: 2;
-  }
-  .yaml-editor textarea:focus { outline: none; border-color: var(--accent); }
-  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
-  .tab {
-    padding: 10px 20px; cursor: pointer; font-size: 14px; color: var(--text-dim);
-    border-bottom: 2px solid transparent; transition: all 0.2s;
-  }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
   /* Profile card */
   .profile-card {
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
@@ -160,12 +143,7 @@
 </header>
 
 <div class="container">
-  <div class="tabs">
-    <div class="tab active" data-tab="form">Form</div>
-    <div class="tab" data-tab="yaml">YAML</div>
-  </div>
-
-  <div id="tab-form" class="tab-content active">
+  <div>
     <!-- ASR -->
     <div class="section">
       <div class="section-header" onclick="toggleSection(this)">
@@ -501,27 +479,11 @@
       </div>
     </div>
   </div>
-
-  <div id="tab-yaml" class="tab-content">
-    <div class="yaml-editor">
-      <textarea id="yaml-editor" spellcheck="false"></textarea>
-    </div>
-  </div>
 </div>
 
 <div id="toast" class="toast"></div>
 
 <script>
-// ── Tab switching ───────────────────────────────────────────────────
-document.querySelectorAll('.tab').forEach(function(tab) {
-  tab.addEventListener('click', function() {
-    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-    tab.classList.add('active');
-    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-  });
-});
-
 // ── Section toggle ──────────────────────────────────────────────────
 function toggleSection(header) {
   header.classList.toggle('collapsed');
@@ -581,16 +543,13 @@ function setSelect(id, val, fallback) {
 }
 
 // ── Load config ─────────────────────────────────────────────────────
-var rawYaml = '';
 var loadedConfig = {};
 
 async function loadConfig() {
   try {
     var res = await fetch('/api/config');
     var data = await res.json();
-    rawYaml = data.raw;
     loadedConfig = data.config || {};
-    document.getElementById('yaml-editor').value = rawYaml;
     populateForm(loadedConfig);
   } catch (e) {
     showToast('Failed to load config', 'error');
@@ -893,23 +852,12 @@ function escAttr(s) {
 
 // ── Save config ─────────────────────────────────────────────────────
 async function save() {
-  var activeTab = document.querySelector('.tab.active').dataset.tab;
-
   try {
-    var res;
-    if (activeTab === 'yaml') {
-      res = await fetch('/api/config/yaml', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: document.getElementById('yaml-editor').value }),
-      });
-    } else {
-      res = await fetch('/api/config/form', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildFormPatch()),
-      });
-    }
+    var res = await fetch('/api/config/form', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildFormPatch()),
+    });
 
     if (res.ok) {
       showToast('Saved! Config reloaded.', 'success');
