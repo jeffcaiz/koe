@@ -20,8 +20,10 @@ static GATE_OPEN: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Current audio RMS level (0.0–1.0), stored as f32 bits in AtomicU32.
-/// Updated from the audio callback, read by the overlay for waveform display.
+/// Auto-normalized against recent peak for adaptive sensitivity.
 static AUDIO_LEVEL: AtomicU32 = AtomicU32::new(0);
+/// Tracks recent peak RMS for auto-gain normalization.
+static AUDIO_PEAK: AtomicU32 = AtomicU32::new(0);
 
 /// Read the current audio level (0.0–1.0).
 #[allow(dead_code)]
@@ -153,10 +155,24 @@ where
         })
         .collect();
 
-    // Compute RMS for overlay waveform
+    // Compute RMS for overlay waveform with auto-gain normalization
     let rms = (mono.iter().map(|s| s * s).sum::<f32>() / mono.len().max(1) as f32).sqrt();
-    // Clamp to 0..1 (typical speech RMS is 0.01–0.15, scale up for visual)
-    let level = (rms * 6.0).clamp(0.0, 1.0);
+
+    // Adaptive peak tracking: fast attack, slow decay
+    let prev_peak = f32::from_bits(AUDIO_PEAK.load(Ordering::Relaxed));
+    let peak = if rms > prev_peak {
+        prev_peak + (rms - prev_peak) * 0.5 // fast attack
+    } else {
+        prev_peak * 0.995 // slow decay (~15%/sec at typical callback rate)
+    };
+    AUDIO_PEAK.store(peak.to_bits(), Ordering::Relaxed);
+
+    // Normalize against recent peak → quiet speech fills the visual range too
+    let level = if peak > 0.002 {
+        (rms / peak).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     AUDIO_LEVEL.store(level.to_bits(), Ordering::Relaxed);
 
     let resampled = if src_rate == dst_rate {
