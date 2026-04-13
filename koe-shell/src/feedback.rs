@@ -40,35 +40,30 @@ pub fn on_state_changed(state: &str) {
 #[cfg(windows)]
 mod platform {
     use std::ptr;
-    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC};
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_FILENAME};
 
     /// Encode a &str as a null-terminated UTF-16 Vec.
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// Play a Windows system sound event by registry name.
-    /// Looks up HKCU\AppEvents\Schemes\Apps\.Default\<name>\.Current
-    fn play_sound_event(name: &str) {
-        let alias = wide(name);
+    fn play_wav(path: &str) {
+        let w = wide(path);
         unsafe {
-            PlaySoundW(alias.as_ptr(), ptr::null_mut(), SND_ALIAS | SND_ASYNC);
+            PlaySoundW(w.as_ptr(), ptr::null_mut(), SND_FILENAME | SND_ASYNC);
         }
     }
 
     pub fn play_start() {
-        // Windows "Device Connect" sound — a pleasant short chime
-        play_sound_event("DeviceConnect");
+        play_wav(r"C:\Windows\Media\Speech On.wav");
     }
 
     pub fn play_stop() {
-        // Windows "Device Disconnect" sound — a soft descending tone
-        play_sound_event("DeviceDisconnect");
+        play_wav(r"C:\Windows\Media\Speech Off.wav");
     }
 
     pub fn play_error() {
-        // Windows system exclamation sound
-        play_sound_event("SystemExclamation");
+        play_wav(r"C:\Windows\Media\Speech Misrecognition.wav");
     }
 }
 
