@@ -1,4 +1,5 @@
 mod audio;
+mod feedback;
 mod hotkey;
 mod overlay;
 mod paste;
@@ -66,6 +67,7 @@ async fn event_loop(mut rx: mpsc::UnboundedReceiver<KoeEvent>) {
             }
             KoeEvent::StateChanged { token: _, state } => {
                 log::info!("state: {state}");
+                feedback::on_state_changed(&state);
                 tray::update_status(&state);
                 overlay::update_state(&state);
             }
