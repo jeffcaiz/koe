@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod audio;
 mod feedback;
 mod hotkey;
@@ -11,8 +13,16 @@ use koe_core::event::KoeEvent;
 use tokio::sync::mpsc;
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    log::info!("koe-shell starting");
+    let debug = std::env::args().any(|a| a == "--debug");
+
+    // In debug mode on Windows, re-attach to the parent console so logs are visible.
+    #[cfg(windows)]
+    if debug {
+        unsafe { windows_sys::Win32::System::Console::AttachConsole(u32::MAX); }
+    }
+
+    init_logging(debug);
+    log::info!("koe-shell starting (debug={})", debug);
 
     // Create event channel
     let (event_tx, event_rx) = mpsc::unbounded_channel::<KoeEvent>();
@@ -54,6 +64,44 @@ fn main() {
     // Cleanup
     api::destroy();
     log::info!("koe-shell exiting");
+}
+
+fn init_logging(debug: bool) {
+    if debug {
+        // Console output
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    } else {
+        // File output to ~/.koe/koe-shell.log
+        let log_path = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".koe")
+            .join("koe-shell.log");
+
+        // Ensure ~/.koe/ exists
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&log_path);
+
+        match file {
+            Ok(file) => {
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                    .target(env_logger::Target::Pipe(Box::new(file)))
+                    .init();
+                // Can't log this via log! yet since we just initialized, but it's fine
+            }
+            Err(_) => {
+                // Fallback to stderr if file creation fails
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                    .init();
+            }
+        }
+    }
 }
 
 async fn event_loop(mut rx: mpsc::UnboundedReceiver<KoeEvent>) {
