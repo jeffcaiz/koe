@@ -56,6 +56,7 @@ mod platform {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
     // ── Direct2D / DirectWrite via windows crate ────────────
+    use windows::core::Interface;
     use windows::Win32::Foundation::RECT as D2RECT;
     use windows::Win32::Graphics::Direct2D::Common::*;
     use windows::Win32::Graphics::Direct2D::*;
