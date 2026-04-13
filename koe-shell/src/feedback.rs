@@ -2,6 +2,9 @@
 //!
 //! Reads the feedback config from koe-core via the key-path API
 //! and plays system sounds on start/stop/error events.
+//!
+//! On Windows 11, uses the built-in Speech Recognition sounds
+//! ("Speech On", "Speech Off", "Speech Misrecognition").
 
 use koe_core::api;
 
@@ -36,19 +39,32 @@ pub fn on_state_changed(state: &str) {
 
 #[cfg(windows)]
 mod platform {
-    use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONASTERISK, MB_ICONHAND, MB_OK};
+    use std::ptr;
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC};
+
+    /// Encode a &str as a null-terminated UTF-16 Vec.
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Play a Windows system sound event by its registered alias name.
+    fn play_sound_alias(name: &str) {
+        let alias = wide(name);
+        unsafe {
+            PlaySoundW(alias.as_ptr(), ptr::null_mut(), SND_ALIAS | SND_ASYNC);
+        }
+    }
 
     pub fn play_start() {
-        unsafe { MessageBeep(MB_OK); }
+        play_sound_alias("Speech On");
     }
 
     pub fn play_stop() {
-        unsafe { MessageBeep(MB_ICONASTERISK); }
+        play_sound_alias("Speech Off");
     }
 
     pub fn play_error() {
-        unsafe { MessageBeep(MB_ICONHAND); }
+        play_sound_alias("Speech Misrecognition");
     }
 }
 
