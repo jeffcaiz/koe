@@ -45,6 +45,7 @@ features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Console",
     "Win32_UI_HiDpi",
+    "Win32_System_Registry",
 ]
 
 [target.'cfg(windows)'.dependencies.windows]
