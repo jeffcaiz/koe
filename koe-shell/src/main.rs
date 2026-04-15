@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod audio;
+mod device_pref;
 mod feedback;
 mod hotkey;
 mod overlay;

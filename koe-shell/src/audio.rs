@@ -25,25 +25,93 @@ static AUDIO_LEVEL: AtomicU32 = AtomicU32::new(0);
 /// Tracks recent peak RMS for auto-gain normalization.
 static AUDIO_PEAK: AtomicU32 = AtomicU32::new(0);
 
+/// Name of the device currently streaming.
+static CURRENT_DEVICE_NAME: Mutex<Option<String>> = Mutex::new(None);
+
 /// Read the current audio level (0.0–1.0).
 #[allow(dead_code)]
 pub fn audio_level() -> f32 {
     f32::from_bits(AUDIO_LEVEL.load(Ordering::Relaxed))
 }
 
-/// Initialize the audio stream at program startup. The stream runs
-/// continuously but frames are only pushed when the gate is open.
-pub fn init() {
+/// List all available input device names.
+pub fn enumerate_devices() -> Vec<String> {
     let host = cpal::default_host();
-    let device = match host.default_input_device() {
-        Some(d) => d,
-        None => {
-            log::error!("no input device available");
-            return;
-        }
+    host.input_devices()
+        .map(|devices| devices.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default()
+}
+
+/// Returns the name of the currently active audio device.
+pub fn current_device_name() -> Option<String> {
+    CURRENT_DEVICE_NAME.lock().unwrap().clone()
+}
+
+/// Returns the system default input device name.
+pub fn default_device_name() -> Option<String> {
+    cpal::default_host()
+        .default_input_device()
+        .and_then(|d| d.name().ok())
+}
+
+fn find_device_by_name(name: &str) -> Option<cpal::Device> {
+    let host = cpal::default_host();
+    host.input_devices()
+        .ok()?
+        .find(|d| d.name().map(|n| n == name).unwrap_or(false))
+}
+
+/// Initialize the audio stream at program startup. Loads the saved
+/// device preference and falls back to system default if needed.
+pub fn init() {
+    let pref = crate::device_pref::load();
+    init_with_preference(pref.as_deref());
+}
+
+/// Reinitialize the audio stream with a new device preference.
+/// Drops the old stream and creates a new one. Gate state is preserved.
+pub fn reinit(device_name: Option<&str>) {
+    {
+        let mut slot = STREAM.lock().unwrap();
+        *slot = None; // drop old stream
+    }
+    init_with_preference(device_name);
+}
+
+fn init_with_preference(pref: Option<&str>) {
+    let host = cpal::default_host();
+    let device = match pref {
+        Some(name) if name != "auto" => match find_device_by_name(name) {
+            Some(d) => {
+                log::info!("using preferred device: {name}");
+                d
+            }
+            None => {
+                log::warn!("preferred device '{name}' not found, falling back to default");
+                match host.default_input_device() {
+                    Some(d) => d,
+                    None => {
+                        log::error!("no input device available");
+                        return;
+                    }
+                }
+            }
+        },
+        _ => match host.default_input_device() {
+            Some(d) => d,
+            None => {
+                log::error!("no input device available");
+                return;
+            }
+        },
     };
 
-    log::info!("audio device: {}", device.name().unwrap_or_default());
+    init_device(device);
+}
+
+fn init_device(device: cpal::Device) {
+    let name = device.name().unwrap_or_default();
+    log::info!("audio device: {name}");
 
     let supported = match device.default_input_config() {
         Ok(c) => c,
@@ -87,6 +155,7 @@ pub fn init() {
         return;
     }
 
+    *CURRENT_DEVICE_NAME.lock().unwrap() = Some(name);
     let mut slot = STREAM.lock().unwrap();
     *slot = Some(StreamHolder(stream));
     log::info!("audio stream running (gate closed)");
