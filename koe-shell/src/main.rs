@@ -59,9 +59,8 @@ fn main() {
     // Initialize hotkey (registers global hotkey)
     hotkey::init();
 
-    // The main thread runs the platform event loop.
-    // On Windows this is a Win32 message loop; on Linux it's a GLib/X11 loop.
-    // global-hotkey and tray-icon both require this.
+    // The main thread runs the Win32 message loop.
+    // tray-icon and hotkey both require this.
     log::info!("entering main event loop");
     tray::run_event_loop();
 
@@ -109,7 +108,7 @@ fn init_logging(debug: bool) {
 }
 
 /// Remove macOS-only defaults from config.yaml so the on-disk file makes sense
-/// for Windows / Linux. Only touches values that still match the upstream defaults;
+/// for Windows. Only touches values that still match the upstream defaults;
 /// user-customized configs are left alone.
 fn sanitize_config() {
     use koe_core::config;

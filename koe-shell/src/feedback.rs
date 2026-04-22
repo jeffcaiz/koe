@@ -37,7 +37,6 @@ pub fn on_state_changed(state: &str) {
     }
 }
 
-#[cfg(windows)]
 mod platform {
     use std::ptr;
     use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_FILENAME};
@@ -64,20 +63,5 @@ mod platform {
 
     pub fn play_error() {
         play_wav(r"C:\Windows\Media\Speech Misrecognition.wav");
-    }
-}
-
-#[cfg(not(windows))]
-mod platform {
-    pub fn play_start() {
-        log::debug!("feedback: start sound (no-op on this platform)");
-    }
-
-    pub fn play_stop() {
-        log::debug!("feedback: stop sound (no-op on this platform)");
-    }
-
-    pub fn play_error() {
-        log::debug!("feedback: error sound (no-op on this platform)");
     }
 }

@@ -83,8 +83,7 @@ pub fn run_event_loop() {
     let reload_item = MenuItem::new("Reload Config", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
-    // "Launch at Startup" check menu item (Windows only)
-    #[cfg(windows)]
+    // "Launch at Startup" check menu item
     let autostart_item = {
         use tray_icon::menu::CheckMenuItem;
         CheckMenuItem::new("Launch at Startup", true, autostart::is_enabled(), None)
@@ -101,20 +100,8 @@ pub fn run_event_loop() {
     let _ = menu.append(&settings_item);
     let _ = menu.append(&reload_item);
     let _ = menu.append(&mic_submenu);
-    #[cfg(windows)]
     let _ = menu.append(&autostart_item);
     let _ = menu.append(&quit_item);
-
-    // On Linux, GTK must be initialized before creating the tray icon
-    #[cfg(target_os = "linux")]
-    if let Err(e) = gtk::init() {
-        log::warn!("GTK init failed: {e} — running without system tray");
-        // Fall through to headless event loop
-        loop {
-            crate::hotkey::poll_events();
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-    }
 
     // Create tray icon (optional — may fail on headless / missing libs)
     let icon = load_default_icon();
@@ -137,7 +124,6 @@ pub fn run_event_loop() {
     let settings_id = settings_item.id().clone();
     let quit_id = quit_item.id().clone();
     let reload_id = reload_item.id().clone();
-    #[cfg(windows)]
     let autostart_id = autostart_item.id().clone();
 
     // Device monitoring state
@@ -147,7 +133,6 @@ pub fn run_event_loop() {
     // Main event loop
     loop {
         // Pump Win32 messages — required for tray icon to respond to clicks
-        #[cfg(windows)]
         pump_win32_messages();
 
         // Poll hotkey events
@@ -251,7 +236,6 @@ pub fn run_event_loop() {
                             break;
                         }
                     }
-                    #[cfg(windows)]
                     if !matched && event.id() == &autostart_id {
                         let now_checked = autostart_item.is_checked();
                         log::info!("autostart toggled: {now_checked}");
@@ -261,8 +245,6 @@ pub fn run_event_loop() {
                             autostart::disable();
                         }
                     }
-                    #[cfg(not(windows))]
-                    let _ = matched;
                 }
             }
         }
@@ -272,7 +254,6 @@ pub fn run_event_loop() {
 }
 
 /// Pump pending Win32 messages so the tray icon's hidden window can process clicks.
-#[cfg(windows)]
 fn pump_win32_messages() {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
     unsafe {
@@ -290,8 +271,7 @@ fn load_default_icon() -> tray_icon::Icon {
     tray_icon::Icon::from_rgba(rgba.to_vec(), 32, 32).expect("failed to create icon")
 }
 
-/// Windows auto-start via the `Run` registry key.
-#[cfg(windows)]
+/// Auto-start via the `Run` registry key.
 mod autostart {
     use std::ffi::c_void;
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;

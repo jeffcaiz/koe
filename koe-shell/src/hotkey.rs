@@ -7,7 +7,7 @@
 //! Uses rdev for raw key event listening, supporting single modifier keys.
 
 use koe_core::api::{self, SessionContext, SessionMode};
-use rdev::{listen, Event, EventType, Key};
+use rdev::{grab, Event, EventType, Key};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::thread;
@@ -75,7 +75,7 @@ pub fn init() {
 
     thread::spawn(move || {
         log::info!("hotkey registered: {key_name} → {key:?} (combo mode: tap=toggle, hold=release-to-stop)");
-        if let Err(e) = listen(on_event) {
+        if let Err(e) = grab(on_event_grab) {
             log::error!("key listener failed: {e:?}");
         }
     });
@@ -84,7 +84,9 @@ pub fn init() {
 /// No-op — rdev runs its own event loop in the background thread.
 pub fn poll_events() {}
 
-fn on_event(event: Event) {
+/// Grab callback: returns `None` to suppress the trigger key (preventing it
+/// from reaching other apps like Chrome), `Some(event)` to pass through.
+fn on_event_grab(event: Event) -> Option<Event> {
     let mut state = STATE.lock().unwrap();
     let trigger = state.trigger_key;
 
@@ -92,7 +94,7 @@ fn on_event(event: Event) {
         EventType::KeyPress(key) if key == trigger => {
             // Filter out key repeat events (key already physically down)
             if state.key_physically_down {
-                return;
+                return None; // suppress repeats too
             }
             state.key_physically_down = true;
 
@@ -115,6 +117,7 @@ fn on_event(event: Event) {
                     // shouldn't happen (filtered by key_physically_down), ignore
                 }
             }
+            None // suppress trigger key from reaching other apps
         }
         EventType::KeyRelease(key) if key == trigger => {
             state.key_physically_down = false;
@@ -143,8 +146,9 @@ fn on_event(event: Event) {
                     // Release in other states — ignore
                 }
             }
+            None // suppress trigger key release too
         }
-        _ => {}
+        _ => Some(event), // pass all other keys through
     }
 }
 

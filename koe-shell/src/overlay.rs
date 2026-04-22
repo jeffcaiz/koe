@@ -53,7 +53,6 @@ pub fn dismiss() {
     }
 }
 
-#[cfg(windows)]
 mod platform {
     use super::OverlayMsg;
     use std::sync::mpsc;
@@ -1168,23 +1167,5 @@ mod platform {
         state.target_alpha = 0;
         // Exit animation: drop down
         state.y_offset_target = sc(EXIT_DROP, state.dpi_scale);
-    }
-}
-
-#[cfg(not(windows))]
-mod platform {
-    use super::OverlayMsg;
-    use std::sync::mpsc;
-
-    pub fn run_overlay(rx: mpsc::Receiver<OverlayMsg>) {
-        log::info!("overlay: no visual overlay on this platform (logging only)");
-        while let Ok(msg) = rx.recv() {
-            match msg {
-                OverlayMsg::UpdateState(s) => log::info!("overlay state: {s}"),
-                OverlayMsg::UpdateInterimText(t) => log::debug!("overlay interim: {t}"),
-                OverlayMsg::UpdateDisplayText(t) => log::debug!("overlay display: {t}"),
-                OverlayMsg::Dismiss => log::debug!("overlay dismissed"),
-            }
-        }
     }
 }
